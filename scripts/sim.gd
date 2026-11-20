@@ -48,6 +48,10 @@ const WIND_SPEED := 2.0
 const TOWER_R := 2.0
 const TOWER_TOP := 14.0
 const NO_GROUND := -1e9
+const FU := 60            # 1 đơn vị dầu = 60 phần nguyên (1/60), tránh sai số số thực
+const DRAIN_RANGE := 2.0
+const DRAIN_CHASE := 6.0
+const DRAIN_EVENT_EVERY := 60
 
 ## Bản đồ chuẩn (Ticket-02 Phần 2). Góc từ +X, điểm = (r cos a, y, r sin a).
 static func level(n: int) -> Dictionary:
@@ -153,6 +157,7 @@ var launched := false
 var launch_h := Vector3.ZERO
 var flames := 3
 var carried := 0
+var successful_lights := 0
 var invuln := 0
 var pulse_cd := 0
 var dash_cd := 0
@@ -192,7 +197,8 @@ func _init(seed: int, tuning: Dictionary, n := 1) -> void:
 	random_drifters = LV.drifters
 	wind_enabled = LV.wind
 	for i in LV.lanterns.size():
-		lanterns.append({"id": "L%d" % (i + 1), "pos": LV.lanterns[i], "lit": false, "deposited": 0})
+		lanterns.append({"id": "L%d" % (i + 1), "pos": LV.lanterns[i], "lit": false, "deposited": 0,
+			"fuel": 0, "ever_lit": false, "relit_count": 0})
 	for i in LV.charms.size():
 		charms.append({"id": "C%d" % (i + 1), "pos": LV.charms[i], "available": true, "respawn": 0})
 	var pts: Array = LV.motes.duplicate()
@@ -223,7 +229,8 @@ func add_shade(pos: Vector3, id := "", st := "wander", t := -1) -> void:
 	next_shade = max(next_shade, _num_id(id) + 1)
 	var g := ground(pos.x, pos.z)
 	var off: float = pos.y - g if g > NO_GROUND else SHADE_Y
-	shades.append({"id": id, "pos": pos, "off": off, "state": st, "t": t, "push_t": 0, "dir": Vector3.RIGHT, "target": pos, "born": steps})
+	shades.append({"id": id, "pos": pos, "off": off, "state": st, "t": t, "push_t": 0, "dir": Vector3.RIGHT, "target": pos,
+		"born": steps, "lantern": "", "drain_t": 0})
 
 
 func add_drifter(pos: Vector3, id := "", st := "idle", stolen := 0, t := -1) -> void:
@@ -250,6 +257,7 @@ func apply_scenario(sc: Dictionary) -> void:
 		for s in sc["shades"]:
 			var p: Array = s["pos"]
 			add_shade(Vector3(p[0], p[1], p[2]), s.get("id", ""), s.get("state", "wander"), int(s.get("state_ticks_left", -1)))
+			shades[-1]["lantern"] = s.get("target_lantern_id", "")
 	if sc.has("drifters"):
 		drifters.clear()
 		for d in sc["drifters"]:
@@ -276,13 +284,18 @@ func apply_scenario(sc: Dictionary) -> void:
 					L["deposited"] = int(l["deposited"])
 				if l.has("lit"):
 					L["lit"] = bool(l["lit"])
+					L["fuel"] = _fmax() if L["lit"] else 0
+				if l.has("fuel"):
+					L["fuel"] = int(round(float(l["fuel"]) * FU)) if L["lit"] else 0
+				if l.has("ever_lit"):
+					L["ever_lit"] = bool(l["ever_lit"])
 	var pl: Dictionary = sc.get("player", {})
 	if pl.has("pos"):
 		p_pos = Vector3(pl["pos"][0], pl["pos"][1], pl["pos"][2])
 		var g := ground(p_pos.x, p_pos.z)
 		grounded = g > NO_GROUND and absf(p_pos.y - g) <= EPS
 	for k in [["carried", "carried"], ["flames", "flames"], ["invuln_ticks", "invuln"], ["dash_cd_ticks", "dash_cd"],
-			["pulse_cd_ticks", "pulse_cd"], ["charm_ticks", "charm_t"]]:
+			["pulse_cd_ticks", "pulse_cd"], ["charm_ticks", "charm_t"], ["successful_lights", "successful_lights"]]:
 		if pl.has(k[0]):
 			set(k[1], int(pl[k[0]]))
 	if sc.has("time_left_s"):
@@ -303,7 +316,27 @@ func _edge(inp: Dictionary, key: String) -> bool:
 
 func _in_safe(pos: Vector3) -> Dictionary:
 	for L in lanterns:
-		if L["lit"] and xz(pos, L["pos"]) < float(T["safe_radius"]):
+		if _safe(L) and xz(pos, L["pos"]) < float(T["safe_radius"]):
+			return L
+	return {}
+
+
+func _fmax() -> int:
+	return int(T["fuel_max"]) * FU
+
+
+## Vùng an toàn chỉ còn khi đèn sáng và dầu >= 30 (đúng 30 vẫn còn).
+func _safe(L: Dictionary) -> bool:
+	return L["lit"] and L["fuel"] >= int(T["low_fuel_threshold"]) * FU
+
+
+func capacity() -> int:
+	return min(int(T["capacity_max"]), int(T["carry_capacity"]) + 2 * successful_lights)
+
+
+func _lantern(id: String) -> Dictionary:
+	for L in lanterns:
+		if L["id"] == id:
 			return L
 	return {}
 
@@ -351,6 +384,25 @@ func step(inp: Dictionary) -> void:
 			m["ttl"] -= 1
 			if m["ttl"] == 0:
 				motes.erase(m)
+	# 2b. dầu: hao 1/s + bị hút 5/s mỗi bóng drain; ngay sau đó đèn hết dầu tắt
+	for L in lanterns:
+		if L["lit"]:
+			L["fuel"] -= int(round(float(T["fuel_decay_per_s"]) * FU / 60.0))
+	for s in shades:
+		if s["state"] == "drain":
+			var L := _lantern(s["lantern"])
+			if not L.is_empty() and L["lit"]:
+				L["fuel"] -= int(round(float(T["drain_per_s"]) * FU / 60.0))
+				s["drain_t"] += 1
+				if s["drain_t"] % DRAIN_EVENT_EVERY == 0:
+					_emit("fuel_drain", {"lantern_id": L["id"], "shade_id": s["id"], "fuel": r1(max(L["fuel"], 0) / float(FU))})
+	for L in lanterns:
+		if L["lit"] and L["fuel"] <= 0:
+			L["lit"] = false
+			L["fuel"] = 0
+			L["deposited"] = 0
+			L["ever_lit"] = true
+			_emit("lantern_out", {"lantern_id": L["id"]})
 	_update_wind()
 	# 3. di chuyển Mây + rơi
 	if fall_wait > 0:
@@ -368,7 +420,7 @@ func step(inp: Dictionary) -> void:
 	# 4. nhặt đom đóm và bùa
 	if active:
 		for m in motes.duplicate():
-			if carried >= int(T["carry_capacity"]):
+			if carried >= capacity():
 				break
 			if m["born"] < steps and _touch(m["pos"], float(T["pickup_radius"])):
 				motes.erase(m)
@@ -424,13 +476,18 @@ func step(inp: Dictionary) -> void:
 	# 10. sinh
 	_spawn()
 	# 11. thắng/thua
+	# v1.2: không thắng sớm; xét ở tick bình minh, hết Ngọn Lửa luôn thua trước
 	if flames <= 0:
 		_end("lost", "no_flames")
-	elif lanterns.all(func(L): return L["lit"]):
-		score += int(floor(max(time_left, 0.0))) * int(S["per_second_left"]) + flames * int(S["per_flame_left"])
-		_end("won", "all_lit")
 	elif time_left <= 1e-9:
-		_end("lost", "dawn")
+		var lit := lanterns.filter(func(L): return L["lit"])
+		if lit.size() >= ceili(float(T["win_ratio"]) * lanterns.size() - 1e-9):
+			for L in lit:
+				score += int(S["per_lit_at_dawn"]) + int(floor(L["fuel"] / float(FU)))
+			score += flames * int(S["per_flame_left"])
+			_end("won", "dawn_survived")
+		else:
+			_end("lost", "dawn")
 
 
 func _touch(pos: Vector3, r: float) -> bool:
@@ -524,10 +581,11 @@ func _move_player(inp: Dictionary, jump: bool, dash: bool) -> void:
 
 
 func _interact() -> void:
+	# chỉ xét đèn nhận được: chưa sáng, hoặc sáng nhưng chưa đầy dầu; gần nhất, bằng nhau thì id nhỏ hơn
 	var best: Dictionary = {}
 	var bd := INF
 	for L in lanterns:
-		if L["lit"] or absf(p_pos.y - L["pos"].y) > DY_MAX:
+		if (L["lit"] and L["fuel"] >= _fmax()) or absf(p_pos.y - L["pos"].y) > DY_MAX:
 			continue
 		var d := xz(p_pos, L["pos"])
 		if d <= float(T["interact_radius"]) + EPS and d < bd - EPS:
@@ -535,7 +593,20 @@ func _interact() -> void:
 			bd = d
 	if best.is_empty() or carried == 0:
 		return
-	var cost := int(T["lantern_cost"])
+	if best["lit"]:
+		var per := int(T["fuel_per_mote"]) * FU
+		var used: int = min(carried, ceili(float(_fmax() - best["fuel"]) / per))
+		var was_low: bool = not _safe(best)
+		best["fuel"] = min(_fmax(), best["fuel"] + per * used)
+		carried -= used
+		score += used * int(S["per_mote"])
+		_emit("refuel", {"lantern_id": best["id"], "amount": used, "fuel": r1(best["fuel"] / float(FU))})
+		if was_low and _safe(best):
+			for s in shades:
+				if s["state"] == "drain" and s["lantern"] == best["id"]:
+					s["state"] = "wander"
+		return
+	var cost := int(T["relight_cost"]) if best["ever_lit"] else int(T["lantern_cost"])
 	var amt: int = clampi(cost - int(best["deposited"]), 0, carried)
 	if amt > 0:
 		best["deposited"] += amt
@@ -543,9 +614,17 @@ func _interact() -> void:
 		score += amt * int(S["per_mote"])
 		_emit("deposit", {"lantern_id": best["id"], "amount": amt, "deposited": best["deposited"]})
 	if best["deposited"] >= cost:
+		var relight: bool = best["ever_lit"]
 		best["lit"] = true
-		score += int(S["per_lantern"])
-		_emit("lantern_lit", {"lantern_id": best["id"]})
+		best["fuel"] = _fmax()
+		best["ever_lit"] = true
+		successful_lights += 1
+		if relight:
+			best["relit_count"] += 1
+			score += int(S["per_relight"])
+		else:
+			score += int(S["per_lantern"])
+		_emit("lantern_lit", {"lantern_id": best["id"], "relight": relight})
 
 
 func _pulse() -> void:
@@ -562,10 +641,10 @@ func _pulse() -> void:
 			var d: Vector3 = s["pos"] - p_pos
 			d.y = 0
 			s["dir"] = d.normalized() if d.length() > 0.0001 else Vector3.RIGHT
+			score += int(S["per_stun_drain"]) if s["state"] == "drain" else int(S["per_stun"])
 			s["state"] = "stunned"
 			s["t"] = _ticks("pulse_stun_s")
 			s["push_t"] = PUSH_TICKS
-			score += int(S["per_stun"])
 			ids.append(s["id"])
 	for d in drifters:
 		if c.distance_to(d.pos) <= r:
@@ -614,6 +693,13 @@ func _move_shade(s: Dictionary, player_active: bool) -> void:
 		_shade_step(s, s["dir"] * (RECOIL_M / RECOIL_TICKS))
 		if s["t"] == 0:
 			s["state"] = "wander"
+	elif stv == "drain":
+		var L := _lantern(s["lantern"])
+		if player_active and xz(s["pos"], p_pos) <= DRAIN_CHASE + EPS:
+			s["state"] = "chase"
+		elif L.is_empty() or not L["lit"] or _safe(L) or xz(s["pos"], L["pos"]) > DRAIN_RANGE + EPS:
+			s["state"] = "wander"
+		return
 	else:
 		var d := xz(s["pos"], p_pos)
 		if not player_active:
@@ -622,26 +708,49 @@ func _move_shade(s: Dictionary, player_active: bool) -> void:
 			s["state"] = "chase"
 		elif stv == "chase" and d > SHADE_LOSE:
 			s["state"] = "wander"
-		var goal: Vector3 = p_pos if s["state"] == "chase" else s["target"]
+		var weak := _weak_lantern(s) if s["state"] == "wander" else {}
+		if not weak.is_empty():
+			s["lantern"] = weak["id"]
+			if xz(s["pos"], weak["pos"]) <= DRAIN_RANGE + EPS:
+				s["state"] = "drain"
+				s["drain_t"] = 0
+				return
+		var goal: Vector3 = p_pos if s["state"] == "chase" else (weak["pos"] if not weak.is_empty() else s["target"])
 		var sp := float(T["shade_speed"]) * float(LV.speed_mul) if s["state"] == "chase" else WANDER_SPEED
 		var to := Vector3(goal.x - s["pos"].x, 0, goal.z - s["pos"].z)
 		if to.length() <= sp * DT:
 			_shade_step(s, to)
-			if s["state"] == "wander":
+			if s["state"] == "wander" and weak.is_empty():
 				s["target"] = _random_point()
 		else:
 			var pre: Vector3 = s["pos"]
 			_shade_step(s, to.normalized() * sp * DT)
-			if s["state"] == "wander" and pre == s["pos"]:
+			if s["state"] == "wander" and pre == s["pos"] and weak.is_empty():
 				s["target"] = _random_point()
+		if s["state"] == "wander" and not weak.is_empty() and xz(s["pos"], weak["pos"]) <= DRAIN_RANGE + EPS:
+			s["state"] = "drain"
+			s["drain_t"] = 0
 	# bóng ở ngoài vùng an toàn bị chặn ở mép
 	var sr := float(T["safe_radius"])
 	for L in lanterns:
-		if L["lit"] and xz(before, L["pos"]) >= sr - 1e-3 and xz(s["pos"], L["pos"]) < sr:
+		if _safe(L) and xz(before, L["pos"]) >= sr - 1e-3 and xz(s["pos"], L["pos"]) < sr:
 			var d: Vector3 = s["pos"] - L["pos"]
 			d.y = 0
 			var e: Vector3 = L["pos"] + d.normalized() * sr
 			s["pos"] = Vector3(e.x, s["pos"].y, e.z)
+
+
+## Đèn sáng có dầu < 30 gần nhất (bằng nhau thì id nhỏ hơn).
+func _weak_lantern(s: Dictionary) -> Dictionary:
+	var best: Dictionary = {}
+	var bd := INF
+	for L in lanterns:
+		if L["lit"] and not _safe(L):
+			var d := xz(s["pos"], L["pos"])
+			if d < bd - EPS:
+				best = L
+				bd = d
+	return best
 
 
 func _random_point() -> Vector3:
@@ -733,6 +842,10 @@ static func r3(x: float) -> float:
 	return 0.0 if absf(v) < 0.0005 else v
 
 
+static func r1(x: float) -> float:
+	return snappedf(x, 0.1)
+
+
 static func v3(v: Vector3) -> Array:
 	return [r3(v.x), r3(v.y), r3(v.z)]
 
@@ -740,10 +853,12 @@ static func v3(v: Vector3) -> Array:
 func snapshot(tick: int) -> Dictionary:
 	var ls := []
 	for L in lanterns:
-		ls.append({"id": L["id"], "pos": v3(L["pos"]), "lit": L["lit"], "deposited": L["deposited"]})
+		ls.append({"id": L["id"], "pos": v3(L["pos"]), "lit": L["lit"], "deposited": L["deposited"],
+			"fuel": r1(L["fuel"] / float(FU)) if L["lit"] else 0, "ever_lit": L["ever_lit"], "relit_count": L["relit_count"]})
 	var ss := []
 	for s in shades:
-		ss.append({"id": s["id"], "pos": v3(s["pos"]), "state": s["state"]})
+		ss.append({"id": s["id"], "pos": v3(s["pos"]), "state": s["state"],
+			"target_lantern_id": s["lantern"] if s["lantern"] != "" else null})
 	var ms := []
 	for m in motes:
 		ms.append({"id": m["id"], "pos": v3(m["pos"]), "kind": m["kind"], "ttl_s": r3(m["ttl"] * DT) if m["ttl"] > 0 else null})
@@ -757,7 +872,7 @@ func snapshot(tick: int) -> Dictionary:
 		"state": "paused" if paused and state == "playing" else state,
 		"time_left_s": r3(time_left), "score": score,
 		"wind": {"active": wind_on, "dir_deg": r3(wind_dir_deg)},
-		"player": {"pos": v3(p_pos), "flames": flames, "carried": carried, "vel": v3(p_vel),
+		"player": {"pos": v3(p_pos), "flames": flames, "carried": carried, "capacity": capacity(), "vel": v3(p_vel),
 			"grounded": grounded, "invuln": invuln > 0, "dash_cd_s": r3(dash_cd * DT),
 			"pulse_cd_s": r3(pulse_cd * DT), "charm_s": r3(charm_t * DT)},
 		"lanterns": ls, "shades": ss, "motes_active": motes.size(), "motes": ms, "drifters": ds, "charms": cs}

@@ -81,7 +81,13 @@ def test_contract_fields():
               "pulse_push_m", "pulse_cooldown_s", "safe_radius", "shade_speed", "shade_hit_radius", "fall_enabled"]:
         assert k in T, k
     assert T["lantern_count_night1"] == 5
-    assert set(T["score"]) == {"per_mote", "per_lantern", "per_stun", "per_second_left", "per_flame_left"}
+    # v1.2 (Ticket-03) thay công thức điểm: thêm per_relight, per_stun_drain, per_lit_at_dawn
+    assert {"per_mote", "per_lantern", "per_relight", "per_stun", "per_stun_drain", "per_lit_at_dawn",
+            "per_flame_left"} <= set(T["score"])
+    for k in ["fuel_max", "fuel_decay_per_s", "fuel_per_mote", "relight_cost", "win_ratio", "drain_per_s",
+              "low_fuel_threshold", "capacity_max"]:
+        assert k in T, k
+    assert CONTRACT["contract_version"] == "1.2"
 
 
 # ---------- Task 3: inputs/scenario ----------
@@ -147,7 +153,8 @@ def test_deposit_lit():
                                        lanterns=[{"id": "L1", "pos": [0, 0, 25]}]), inputs=_interact())
     d = events(L, "deposit")
     assert d and d[0]["data"] == {"lantern_id": "L1", "amount": cost, "deposited": cost}, d
-    assert events(L, "lantern_lit")[0]["data"] == {"lantern_id": "L1"}
+    # v1.2 (Ticket-03) thêm trường relight vào lantern_lit
+    assert events(L, "lantern_lit")[0]["data"] == {"lantern_id": "L1", "relight": False}
     assert end(L)["score"] == T["score"]["per_lantern"] + cost * T["score"]["per_mote"]
 
 
@@ -251,17 +258,9 @@ def test_prelit_no_score():
     assert end(L)["score"] == 0 and not events(L, "lantern_lit") and snap(L, 0)["lanterns"][0]["lit"]
 
 
-def test_win():
-    cost = T["lantern_cost"]
-    lan = [{"id": f"L{i}", "lit": True} for i in range(1, 5)] + [{"id": "L5", "pos": [0, 0, 5], "deposited": cost - 1}]
-    c, L, _ = run(ticks=100, scenario=sc(player={"pos": [0, 0, 3], "carried": 1}, lanterns=lan, time_left_s=100),
-                  inputs=_interact())
-    go = events(L, "game_over")
-    assert go and go[0]["data"] == {"result": "won", "reason": "all_lit"} and go[0]["tick"] == 1
-    S = T["score"]
-    tl = 100 - 1 / 60
-    want = S["per_mote"] + S["per_lantern"] + S["per_second_left"] * math.floor(tl) + S["per_flame_left"] * T["flames"]
-    assert end(L) == {"type": "end", "ticks": 1, "state": "won", "score": want}, end(L)
+# test_win (thắng sớm khi thắp hết đèn, reason all_lit) đã XÓA ở Phase 3:
+# Ticket-03 thay luật thắng bằng "sống tới bình minh và đủ 60% đèn sáng" (dawn_survived), bỏ all_lit.
+# Thay bằng test_no_early_win, test_dawn_survived, test_dawn_lost_below_ratio, test_night_thresholds.
 
 
 def test_dawn():
@@ -354,7 +353,7 @@ def test_pause():
     c, L, _ = run(ticks=60, scenario=sc(), inputs={"frames": fr}, every=10)
     assert [e["name"] for e in L if e["type"] == "event" and e["name"] in ("paused", "resumed")] == ["paused", "resumed"]
     s = snap(L, 30)
-    assert s["state"] == "paused" and s["sim_tick"] == 10 and s["time_left_s"] == round(300 - 10 / 60, 3)
+    assert s["state"] == "paused" and s["sim_tick"] == 10 and s["time_left_s"] == round(T["night1_duration_s"] - 10 / 60, 3)
     assert snap(L, 60)["sim_tick"] == 30 and end(L)["ticks"] == 60
 
 
@@ -495,6 +494,138 @@ def test_ramp_edge_no_gap():
     p = [23.98 * d[0] + 1.4 * perp[0], 0, 23.98 * d[1] + 1.4 * perp[1]]
     c, L, _ = run(night=3, ticks=30, scenario=sc(player={"pos": [p[0], 3, p[2]]}))
     assert not events(L, "player_hit"), "rơi ở khe mép dốc"
+
+
+# ---------- Phase 3 / Contract v1.2 ("Đèn cạn dầu") ----------
+def _lit(fuel=None, **kw):
+    d = {"id": "L1", "lit": True}
+    if fuel is not None:
+        d["fuel"] = fuel
+    d.update(kw)
+    return [d]
+
+
+def test_fuel_decay_and_snapshot():
+    c, L, _ = run(ticks=60, scenario=sc(lanterns=_lit()), every=60)
+    l1 = snap(L, 0)["lanterns"][0]
+    assert l1["fuel"] == 100 and l1["ever_lit"] is False and l1["relit_count"] == 0
+    assert snap(L, 60)["lanterns"][0]["fuel"] == 99.0 and snap(L, 0)["lanterns"][1]["fuel"] == 0
+    assert snap(L, 0)["player"]["capacity"] == 10
+
+
+def test_lantern_out():
+    c, L, _ = run(ticks=40, scenario=sc(lanterns=_lit(0.5, deposited=10)), every=1)
+    o = events(L, "lantern_out")
+    assert o and o[0]["data"] == {"lantern_id": "L1"} and o[0]["tick"] == 30, o
+    l1 = snap(L, 30)["lanterns"][0]
+    assert (l1["lit"], l1["fuel"], l1["deposited"], l1["ever_lit"]) == (False, 0, 0, True), l1
+
+
+def test_refuel():
+    c, L, _ = run(ticks=3, scenario=sc(player={"pos": [0, 0, 23], "carried": 10}, lanterns=_lit(50)), inputs=_interact())
+    r = events(L, "refuel")
+    # dầu sau bước 2 của tick 1 = 50 - 1/60 → used = ceil(50.0167/10) = 6
+    assert r and r[0]["data"] == {"lantern_id": "L1", "amount": 6, "fuel": 100.0}, r
+    assert end(L)["score"] == 6 * T["score"]["per_mote"] and snap(L, 0)["player"]["carried"] == 10
+
+
+def test_full_lantern_not_selected():
+    # L1 đầy dầu ở gần; L2 chưa sáng xa hơn nhưng vẫn trong tầm → chọn L2
+    c, L, _ = run(ticks=3, scenario=sc(player={"pos": [0, 0, 23], "carried": 3},
+                                       lanterns=[{"id": "L1", "lit": True, "fuel": 100}, {"id": "L2", "pos": [1.5, 0, 22]}]),
+                  inputs=_interact())
+    assert [e["data"]["lantern_id"] for e in events(L, "deposit")] == ["L2"] and not events(L, "refuel")
+
+
+def test_relight():
+    c, L, _ = run(ticks=3, scenario=sc(player={"pos": [0, 0, 23], "carried": 7},
+                                       lanterns=[{"id": "L1", "ever_lit": True}]), inputs=_interact())
+    rc = T["relight_cost"]
+    assert events(L, "deposit")[0]["data"] == {"lantern_id": "L1", "amount": rc, "deposited": rc}
+    assert events(L, "lantern_lit")[0]["data"] == {"lantern_id": "L1", "relight": True}
+    assert end(L)["score"] == rc * T["score"]["per_mote"] + T["score"]["per_relight"]
+    c, L, _ = run(ticks=3, scenario=sc(player={"pos": [0, 0, 23], "carried": 10}), inputs=_interact(), every=1)
+    assert events(L, "lantern_lit")[0]["data"]["relight"] is False and snap(L, 1)["lanterns"][0]["fuel"] == 100.0
+
+
+def test_capacity_grows():
+    c, L, _ = run(ticks=3, scenario=sc(player={"pos": [0, 0, 23], "carried": 10}), inputs=_interact(), every=1)
+    assert snap(L, 1)["player"]["capacity"] == 12
+    c, L, _ = run(ticks=1, scenario=sc(player={"successful_lights": 9}))
+    assert snap(L, 0)["player"]["capacity"] == T["capacity_max"]
+    c, L, _ = run(ticks=1, scenario=sc(lanterns=_lit()))
+    assert snap(L, 0)["player"]["capacity"] == 10   # đèn đặt sẵn không tính
+
+
+def test_drain():
+    c, L, _ = run(ticks=200, scenario=sc(player={"pos": [0, 0, -30]}, lanterns=_lit(20),
+                                         shades=[{"id": "S1", "pos": [0, 1, 21.5]}]), every=1)
+    st = [l["shades"][0]["state"] for l in L if l["type"] == "snapshot"]
+    assert "drain" in st, st[:10]
+    t0 = st.index("drain")
+    f = events(L, "fuel_drain")
+    assert f and f[0]["data"]["lantern_id"] == "L1" and f[0]["data"]["shade_id"] == "S1", f
+    a, b = snap(L, t0 + 1)["lanterns"][0]["fuel"], snap(L, t0 + 61)["lanterns"][0]["fuel"]
+    assert abs((a - b) - 6.0) < 0.15, (a, b)   # hao 1 + hút 5 mỗi giây
+
+
+def test_drain_to_chase_and_pulse_bonus():
+    sh = [{"id": "S1", "pos": [0, 1, 20], "state": "drain", "target_lantern_id": "L1"}]
+    c, L, _ = run(ticks=3, scenario=sc(player={"pos": [0, 0, 16], "carried": 3}, lanterns=_lit(20), shades=sh),
+                  inputs={"frames": [{"tick": 0, "pulse": True}]}, every=1)
+    assert events(L, "pulse")[0]["data"] == {"stunned_ids": ["S1"]}
+    assert end(L)["score"] == T["score"]["per_stun_drain"]
+    c, L, _ = run(ticks=3, scenario=sc(player={"pos": [0, 0, 15]}, lanterns=_lit(20), shades=sh), every=1)
+    assert snap(L, 1)["shades"][0]["state"] == "chase"
+
+
+def test_low_fuel_loses_safe_zone():
+    c, L, _ = run(ticks=200, scenario=sc(player={"pos": [0, 0, 25]}, lanterns=_lit(29.9),
+                                         shades=[{"id": "S1", "pos": [0, 1, 15]}]))
+    assert events(L, "player_hit"), "đèn < 30 dầu phải mất vùng an toàn"
+    c, L, _ = run(ticks=200, scenario=sc(player={"pos": [0, 0, 25]}, lanterns=_lit(80),
+                                         shades=[{"id": "S1", "pos": [0, 1, 15]}]))
+    assert not events(L, "player_hit")
+
+
+def test_refuel_pushes_shades_out():
+    sh = [{"id": "S1", "pos": [0, 1, 21], "state": "drain", "target_lantern_id": "L1"}]
+    c, L, _ = run(ticks=40, scenario=sc(player={"pos": [0, 0, 23], "carried": 10}, lanterns=_lit(10), shades=sh),
+                  inputs={"frames": [{"tick": 0, "interact": True}]}, every=1)
+    assert events(L, "refuel")
+    p = snap(L, 31)["shades"][0]["pos"]
+    assert math.hypot(p[0], p[2] - 25) >= T["safe_radius"] - 0.01 and not events(L, "player_hit"), p
+
+
+def test_no_early_win():
+    cost = T["lantern_cost"]
+    lan = [{"id": f"L{i}", "lit": True} for i in range(1, 5)] + [{"id": "L5", "pos": [0, 0, 5], "deposited": cost - 1}]
+    c, L, _ = run(ticks=100, scenario=sc(player={"pos": [0, 0, 3], "carried": 1}, lanterns=lan), inputs=_interact())
+    assert events(L, "lantern_lit") and not events(L, "game_over") and end(L)["state"] == "playing"
+
+
+def test_dawn_survived():
+    lan = [{"id": f"L{i}", "lit": True, "fuel": 100} for i in (1, 2, 3)]
+    c, L, _ = run(ticks=200, scenario=sc(lanterns=lan, time_left_s=1))
+    go = events(L, "game_over")
+    assert go and go[0]["data"] == {"result": "won", "reason": "dawn_survived"} and go[0]["tick"] == 60, go
+    S = T["score"]
+    want = 3 * (S["per_lit_at_dawn"] + 99) + S["per_flame_left"] * T["flames"]
+    assert end(L) == {"type": "end", "ticks": 60, "state": "won", "score": want}, end(L)
+
+
+def test_dawn_lost_below_ratio():
+    lan = [{"id": "L1", "lit": True}, {"id": "L2", "lit": True}]
+    c, L, _ = run(ticks=200, scenario=sc(lanterns=lan, time_left_s=1))
+    assert events(L, "game_over")[0]["data"] == {"result": "lost", "reason": "dawn"} and end(L)["score"] == 0
+
+
+def test_night_thresholds():
+    # Đêm 2 cần 4/6, Đêm 3 cần 5/7
+    for night, n_lit, want in [(2, 4, "won"), (2, 3, "lost"), (3, 5, "won"), (3, 4, "lost")]:
+        lan = [{"id": f"L{i}", "lit": True} for i in range(1, n_lit + 1)]
+        c, L, _ = run(night=night, ticks=100, scenario=sc(lanterns=lan, time_left_s=1), tag=f"th{night}{n_lit}")
+        assert end(L)["state"] == want, (night, n_lit, end(L))
 
 
 if __name__ == "__main__":

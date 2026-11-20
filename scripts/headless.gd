@@ -144,7 +144,7 @@ static func _check_scenario(d: Dictionary, n_lanterns: int) -> String:
 			return "player phải là object"
 		if p.has("pos") and not _vec(p["pos"], 3):
 			return "player.pos phải là [x,y,z]"
-		for k in ["carried", "flames", "invuln_ticks", "dash_cd_ticks", "pulse_cd_ticks", "charm_ticks"]:
+		for k in ["carried", "flames", "invuln_ticks", "dash_cd_ticks", "pulse_cd_ticks", "charm_ticks", "successful_lights"]:
 			if p.has(k) and not (_int(p[k]) and p[k] >= 0):
 				return "player.%s phải là số nguyên >= 0" % k
 	for k in ["random_motes", "random_shades", "random_drifters", "wind_enabled"]:
@@ -158,10 +158,12 @@ static func _check_scenario(d: Dictionary, n_lanterns: int) -> String:
 		for s in d["shades"]:
 			if typeof(s) != TYPE_DICTIONARY or not _vec(s.get("pos"), 3) or (s.has("id") and typeof(s["id"]) != TYPE_STRING):
 				return "shade cần pos [x,y,z], id là chuỗi"
-			if s.has("state") and not (s["state"] in ["spawning", "wander", "chase", "recoil", "stunned"]):
+			if s.has("state") and not (s["state"] in ["spawning", "wander", "chase", "recoil", "stunned", "drain"]):
 				return "shade.state không hợp lệ"
 			if s.has("state_ticks_left") and not (_int(s["state_ticks_left"]) and s["state_ticks_left"] >= 0):
 				return "shade.state_ticks_left phải là số nguyên >= 0"
+			if s.has("target_lantern_id") and typeof(s["target_lantern_id"]) != TYPE_STRING:
+				return "shade.target_lantern_id phải là chuỗi"
 	if d.has("drifters"):
 		if typeof(d["drifters"]) != TYPE_ARRAY:
 			return "drifters phải là mảng"
@@ -194,6 +196,10 @@ static func _check_scenario(d: Dictionary, n_lanterns: int) -> String:
 				return "lantern.lit phải là boolean"
 			if l.has("deposited") and not (_int(l["deposited"]) and l["deposited"] >= 0):
 				return "lantern.deposited phải là số nguyên >= 0"
+			if l.has("fuel") and not (_num(l["fuel"]) and l["fuel"] >= 0 and l["fuel"] <= 100):
+				return "lantern.fuel phải là số trong [0, 100]"
+			if l.has("ever_lit") and typeof(l["ever_lit"]) != TYPE_BOOL:
+				return "lantern.ever_lit phải là boolean"
 	if d.has("time_left_s") and not (_num(d["time_left_s"]) and d["time_left_s"] > 0):
 		return "time_left_s phải là số > 0"
 	return ""
