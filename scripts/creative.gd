@@ -3,9 +3,11 @@ extends Node3D
 ## - Sương Gai: kẻ địch mới, kéo tới nhiều hơn khi Mây mang nhiều đom đóm, chạm thì cướp 1 đom đóm (không trừ Ngọn Lửa).
 ## - Gió Đèn (Q): tốn 5 đom đóm, thổi bay Sương Gai trong 9 m. Không tác động Bóng Mực (luật chuẩn giữ nguyên).
 ## - Viền tối: mang càng nhiều đom đóm, rìa màn hình càng tối (không đụng ánh sáng môi trường chuẩn).
+## - Phản đòn: lướt xuyên qua thì hất văng Sương Gai; đáp từ trên xuống thì đạp vỡ (Mây không nảy, luật nhảy giữ nguyên).
+## - Mỗi lần thắp đèn thành công: Gió Đèn rẻ hơn 1 (tối thiểu 2) và rộng thêm 2 m; cần mang thêm 1 đom đóm mới thu hút Sương Gai.
 
 const Sim = preload("res://scripts/sim.gd")
-const SPEED := 6.0          # nhanh hơn Bóng Mực, tạo áp lực
+const SPEED := 4.5          # ngang Bóng Mực Đêm 3 (playtest: 6.0 quá khó)
 const TOUCH := 1.0
 const PER_MOTES := 4        # mỗi 4 đom đóm đang mang thu hút 1 Sương Gai
 const MAX_THORNS := 5
@@ -67,22 +69,34 @@ func _make_thorn() -> Node3D:
 
 
 ## Gọi mỗi tick vật lý sau sim.step (chỉ khi đang chơi).
+func wind_cost() -> int:
+	return maxi(2, WIND_COST - sim.successful_lights)
+
+
+func wind_radius() -> float:
+	return WIND_R + 2.0 * sim.successful_lights
+
+
+func per_motes() -> int:
+	return PER_MOTES + sim.successful_lights
+
+
 func tick(dt: float, wind_pressed: bool) -> void:
 	var cap: int = sim.capacity()
 	vig_mat.set_shader_parameter("strength", 0.15 + 0.65 * float(sim.carried) / max(1, cap))
 	wind_cd = max(0.0, wind_cd - dt)
-	if wind_pressed and wind_cd == 0.0 and sim.carried >= WIND_COST and sim.fall_wait == 0:
-		sim.carried -= WIND_COST
+	if wind_pressed and wind_cd == 0.0 and sim.carried >= wind_cost() and sim.fall_wait == 0:
+		sim.carried -= wind_cost()
 		wind_cd = WIND_CD
 		view.sfx.play("pulse")
 		for t in thorns:
 			var d: Vector3 = t.pos - sim.p_pos
 			d.y = 0
-			if d.length() <= WIND_R:
+			if d.length() <= wind_radius():
 				t.push = (d.normalized() if d.length() > 0.01 else Vector3.RIGHT) * WIND_PUSH
 				t.flee = 2.0
 	# số Sương Gai bị thu hút theo số đom đóm đang mang
-	var want := mini(MAX_THORNS, sim.carried / PER_MOTES)
+	var want := mini(MAX_THORNS, sim.carried / per_motes())
 	spawn_t += dt
 	if thorns.size() < want and spawn_t >= SPAWN_EVERY:
 		spawn_t = 0.0
@@ -100,7 +114,7 @@ func tick(dt: float, wind_pressed: bool) -> void:
 		if t.flee > 0.0:
 			t.flee -= dt
 			vel = -to.normalized() * SPEED * 0.6
-		elif sim.carried >= PER_MOTES / 2 and sim.fall_wait == 0:
+		elif sim.carried >= per_motes() / 2 and sim.fall_wait == 0:
 			vel = to.normalized() * SPEED
 		elif to.length() < 30.0:
 			vel = -to.normalized() * 2.0  # tay trắng thì Sương Gai tản đi
@@ -114,6 +128,17 @@ func tick(dt: float, wind_pressed: bool) -> void:
 		var g: float = sim.ground(nxt.x, nxt.z)
 		if g > Sim.NO_GROUND:
 			t.pos = Vector3(nxt.x, g + 0.8, nxt.z)
+		var near: bool = to.length() <= TOUCH + 0.3 and sim.fall_wait == 0
+		if near and sim.p_vel.y < -1.0 and sim.p_pos.y > t.pos.y + 0.2:  # đạp từ trên xuống
+			t.node.queue_free()
+			thorns.erase(t)
+			view.sfx.play("pick")
+			continue
+		if near and sim.dash_t > 0:  # lướt xuyên qua: hất văng, không bị cướp
+			var away: Vector3 = -to.normalized() if to.length() > 0.01 else Vector3.RIGHT
+			t.push = away * WIND_PUSH
+			t.flee = 2.0
+			continue
 		if t.flee <= 0.0 and to.length() <= TOUCH and sim.carried > 0 and sim.fall_wait == 0:
 			sim.carried -= 1
 			t.flee = 2.5

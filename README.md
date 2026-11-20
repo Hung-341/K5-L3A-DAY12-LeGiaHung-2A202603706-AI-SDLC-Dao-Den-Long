@@ -56,8 +56,9 @@ python3 tests/run_tests.py              # 29 scenario headless, gồm kiểm tra
 Phần thêm chia hai loại. Cả hai đều không đổi luật hay số liệu chuẩn.
 
 **A. Chỉ có trong bản giao diện** (`scripts/view.gd`, `scripts/creative.gd`; headless không nạp hai file này, nên output contract không đổi):
-- **Sương Gai:** kẻ địch mới (ticket cho phép thêm kẻ địch ngoài Bóng Mực và Gió Lạc). Mỗi 4 đom đóm Mây đang mang thu hút thêm 1 Sương Gai, tối đa 5. Chúng tới từ hướng bất kỳ, nhanh 6 m/s, chạm thì cướp 1 đom đóm và **không trừ Ngọn Lửa**. Người chơi phải chọn: ôm nhiều để thắp và châm dầu nhanh, hay nạp sớm cho an toàn.
+- **Sương Gai:** kẻ địch mới (ticket cho phép thêm kẻ địch ngoài Bóng Mực và Gió Lạc). Mỗi 4 đom đóm Mây đang mang thu hút thêm 1 Sương Gai, tối đa 5. Chúng tới từ hướng bất kỳ, nhanh 4.5 m/s, chạm thì cướp 1 đom đóm và **không trừ Ngọn Lửa**. Người chơi phải chọn: ôm nhiều để thắp và châm dầu nhanh, hay nạp sớm cho an toàn.
 - **Gió Đèn (Q):** tốn 5 đom đóm, thổi bay Sương Gai trong 9 m, hồi 4 s. Không tác động Bóng Mực, vì luật chuẩn quy định Bóng Mực chỉ bị Tỏa Sáng đẩy và không chết.
+- **Phản đòn và phần thưởng:** lướt xuyên qua Sương Gai sẽ hất văng nó; đáp từ trên xuống đầu Sương Gai sẽ đạp vỡ nó (Mây không nảy thêm, luật nhảy giữ nguyên). Mỗi lần thắp đèn thành công: Gió Đèn rẻ hơn 1 đom đóm (tối thiểu 2), rộng thêm 2 m, và Sương Gai cần thêm 1 đom đóm mới bị thu hút. Không cộng thời gian, không tăng tầm lướt hay nhảy, vì đó là số liệu chuẩn.
 - **Viền tối:** mang càng nhiều đom đóm, rìa màn hình càng tối. Ánh sáng môi trường chuẩn (`0.15 + 0.55 × đèn sáng/tổng`) giữ nguyên.
 - **Đảo "đồ chơi trong mơ":** nhân vật chibi, tilt-shift; cây, đá, cỏ, hoa (có cuống và cánh, không phát sáng để không nhầm với đom đóm); hàng rào gỗ đánh dấu vùng an toàn 6 m. Trang trí **không có va chạm** và được đặt tránh đèn, điểm đom đóm, bục nhảy, để không đổi bản đồ chuẩn.
 - **Cảm giác điều khiển:** nội suy hình giữa các tick, camera góc nhìn thứ ba xoay tự do (chuột ngang/dọc, cuộn để zoom, không xuyên đất), nhớ phím 0.1 s. Bóng Mực để lại vệt mực khi đuổi; tốc độ thật vẫn là 4.0 m/s.

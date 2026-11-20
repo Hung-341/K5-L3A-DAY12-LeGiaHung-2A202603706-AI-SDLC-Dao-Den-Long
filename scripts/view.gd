@@ -560,7 +560,8 @@ func _update_hud(t: float) -> void:
 	lbl.pulse.text = "Tỏa Sáng " + ("✓" if sim.pulse_cd == 0 and sim.carried >= 3 else ("%.1fs" % (sim.pulse_cd / 60.0) if sim.pulse_cd > 0 else "cần 3"))
 	lbl.dash.position = Vector2(vp.x - 230, vp.y - 126)
 	lbl.pulse.position = Vector2(vp.x - 230, vp.y - 92)
-	lbl.windq.text = "Q Gió Đèn " + ("✓" if creative.wind_cd == 0.0 and sim.carried >= creative.WIND_COST else ("%.1fs" % creative.wind_cd if creative.wind_cd > 0 else "cần 5"))
+	var wc: int = creative.wind_cost()
+	lbl.windq.text = "Q Gió Đèn (%d) " % wc + ("✓" if creative.wind_cd == 0.0 and sim.carried >= wc else ("%.1fs" % creative.wind_cd if creative.wind_cd > 0 else "thiếu"))
 	lbl.windq.position = Vector2(vp.x - 230, vp.y - 58)
 	# khung bo góc cho các cụm HUD
 	var boxes := [Rect2(12, 10, 230, 44), Rect2(vp.x / 2 - 70, 8, 140, 50), Rect2(vp.x - 412, 10, 400, 44),
