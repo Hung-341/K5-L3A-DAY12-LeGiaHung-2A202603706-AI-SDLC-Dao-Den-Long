@@ -29,6 +29,21 @@ var sens := 0.25
 var volume := 0.8
 var colorblind := false  # "Bảng màu dễ phân biệt" (Ticket-03 mục 6)
 var big_text := false   # Ticket-04: chữ lớn ×1.25
+var reduce_motion := false  # Ticket-04: tắt rung camera và chớp màn hình
+const DEFAULT_KEYS := {"up": KEY_W, "down": KEY_S, "left": KEY_A, "right": KEY_D, "jump": KEY_SPACE,
+	"dash": KEY_SHIFT, "interact": KEY_E, "pulse": KEY_F, "pause": KEY_P, "wind": KEY_Q}
+const KEY_NAMES := {"up": "Lên", "down": "Xuống", "left": "Trái", "right": "Phải", "jump": "Nhảy", "dash": "Lướt",
+	"interact": "Tương tác", "pulse": "Tỏa Sáng", "pause": "Tạm dừng", "wind": "Gió Đèn"}
+var keys := DEFAULT_KEYS.duplicate()
+var waiting_key := ""      # hành động đang chờ nhấn phím mới
+var key_msg: Label
+var subs: Array = []       # phụ đề: [text, giây còn lại]
+var shake := 0.0
+var flash: ColorRect
+var spawn_arrows: Array = []  # [shade_id, giây còn lại]
+var shade_arrow_nodes: Array = []
+var low_seen := {}
+var said_last10 := false
 var skin := 0  # phụ kiện; áo #E8E2D0, khăn #C8102E, nón lá + đèn lồng giữ nguyên theo PRD/bảng màu
 const SKINS := ["Cổ điển", "Hoa cài nón", "Đèn cá chép", "Ba lô lá"]
 var orbit: Array = []   # đom đóm bay quanh Mây = số đang mang (bổ sung cho thanh HUD bắt buộc)
@@ -197,6 +212,10 @@ func _load_settings() -> void:
 		sens = cf.get_value("input", "mouse_sensitivity", sens)
 		colorblind = cf.get_value("display", "colorblind", colorblind)
 		skin = cf.get_value("player", "skin", skin)
+		big_text = cf.get_value("display", "big_text", big_text)
+		reduce_motion = cf.get_value("display", "reduce_motion", reduce_motion)
+		for a in DEFAULT_KEYS:
+			keys[a] = cf.get_value("keys", a, DEFAULT_KEYS[a])
 
 
 func _save_settings() -> void:
@@ -205,6 +224,10 @@ func _save_settings() -> void:
 	cf.set_value("input", "mouse_sensitivity", sens)
 	cf.set_value("display", "colorblind", colorblind)
 	cf.set_value("player", "skin", skin)
+	cf.set_value("display", "big_text", big_text)
+	cf.set_value("display", "reduce_motion", reduce_motion)
+	for a in keys:
+		cf.set_value("keys", a, keys[a])
 	cf.save("user://settings.cfg")
 
 
@@ -225,12 +248,76 @@ func _title(t: String, size := 34) -> void:
 	l.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 
 
+## Đổi phím: mọi hành động, báo trùng phím, khôi phục mặc định, được lưu.
+func _show_keys() -> void:
+	_clear_panel()
+	_title("Đổi phím", 36)
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	panel.add_child(grid)
+	for a in DEFAULT_KEYS:
+		var l := _label(grid, KEY_NAMES[a], 20)
+		l.custom_minimum_size = Vector2(200, 0)
+		var b := Button.new()
+		b.text = "Nhấn phím…" if waiting_key == a else OS.get_keycode_string(keys[a])
+		b.custom_minimum_size = Vector2(200, 36)
+		b.add_theme_font_size_override("font_size", fs(20))
+		b.pressed.connect(func():
+			waiting_key = a
+			_show_keys())
+		grid.add_child(b)
+	key_msg = _label(panel, "Esc luôn mở tạm dừng. Bấm một ô rồi nhấn phím mới.", 18)
+	key_msg.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_button("Khôi phục mặc định", func():
+		keys = DEFAULT_KEYS.duplicate()
+		waiting_key = ""
+		_save_settings()
+		_show_keys())
+	_button("Quay lại", _show_settings)
+
+
+func _input(e: InputEvent) -> void:
+	if waiting_key == "" or not (e is InputEventKey and e.pressed and not e.echo):
+		return
+	get_viewport().set_input_as_handled()
+	var k: int = e.physical_keycode if e.physical_keycode != 0 else e.keycode
+	if k == KEY_ESCAPE:
+		waiting_key = ""
+		_show_keys()
+		return
+	for other in keys:
+		if other != waiting_key and keys[other] == k:
+			var a := waiting_key
+			waiting_key = ""
+			_show_keys()
+			key_msg.text = "⚠ Trùng phím: %s đang dùng cho \"%s\". Chưa đổi \"%s\"." % [OS.get_keycode_string(k), KEY_NAMES[other], KEY_NAMES[a]]
+			key_msg.add_theme_color_override("font_color", danger())
+			return
+	keys[waiting_key] = k
+	waiting_key = ""
+	_save_settings()
+	_show_keys()
+
+
+func _act(a: String) -> bool:
+	return Input.is_physical_key_pressed(keys[a])
+
+
+func _say(text: String) -> void:
+	for x in subs:
+		if x[0] == text:
+			x[1] = 3.0
+			return
+	subs.append([text, 3.0])
+
+
 func _button(t: String, f: Callable) -> void:
 	var b := Button.new()
 	b.text = t
 	b.custom_minimum_size = Vector2(320, 48)
 	b.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	b.add_theme_font_size_override("font_size", 22)
+	b.add_theme_font_size_override("font_size", fs(22))
 	b.pressed.connect(f)
 	panel.add_child(b)
 
@@ -335,6 +422,18 @@ func _show_settings() -> void:
 		colorblind = on
 		_save_settings())
 	panel.add_child(cb)
+	for opt in [["Giảm chuyển động", "reduce_motion"], ["Chữ lớn ×1.25", "big_text"]]:
+		var t := CheckButton.new()
+		t.text = opt[0]
+		t.button_pressed = get(opt[1])
+		t.add_theme_font_size_override("font_size", fs(22))
+		t.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		t.toggled.connect(func(on):
+			set(opt[1], on)
+			_save_settings()
+			_show_settings())
+		panel.add_child(t)
+	_button("Đổi phím", _show_keys)
 	_button("Quay lại", func(): _show_pause() if paused else _show_menu())
 
 
@@ -501,6 +600,10 @@ func _load_night(n: int) -> void:
 	last_sec = -1
 	trails.clear()
 	orbit.clear()
+	subs.clear()
+	spawn_arrows.clear()
+	low_seen.clear()
+	said_last10 = false
 	if creative:
 		creative.reset(sim)
 	env = Environment.new()
@@ -709,7 +812,7 @@ func fs(n: int) -> int:
 func _label(parent: Node, text := "", size := 22) -> Label:
 	var l := Label.new()
 	l.text = text
-	l.add_theme_font_size_override("font_size", size)
+	l.add_theme_font_size_override("font_size", fs(size))
 	l.add_theme_color_override("font_color", C.ui)
 	l.add_theme_color_override("font_outline_color", C.sky)
 	l.add_theme_constant_override("outline_size", 6)
@@ -733,7 +836,12 @@ func _build_hud() -> void:
 		pn.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		hud.add_child(pn)
 		hud_panels.append(pn)
-	for k in ["flames", "clock", "right", "prompt", "dash", "pulse", "warn", "cap", "windq"]:
+	flash = ColorRect.new()
+	flash.color = Color(C.lamp_core, 0.0)
+	flash.set_anchors_preset(Control.PRESET_FULL_RECT)
+	flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hud.add_child(flash)
+	for k in ["flames", "clock", "right", "prompt", "dash", "pulse", "warn", "cap", "windq", "sub"]:
 		lbl[k] = _label(hud)
 	lbl.clock.add_theme_font_size_override("font_size", 30)
 	lbl.right.add_theme_color_override("font_color", C.gold)
@@ -749,6 +857,12 @@ func _build_hud() -> void:
 		c.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		hud.add_child(c)
 		cells.append(c)
+	for i in 4:
+		var sp := Polygon2D.new()
+		sp.polygon = PackedVector2Array([Vector2(18, 0), Vector2(-12, -12), Vector2(-6, 0), Vector2(-12, 12)])
+		sp.visible = false
+		hud.add_child(sp)
+		shade_arrow_nodes.append(sp)
 	arrow = Polygon2D.new()
 	arrow.polygon = PackedVector2Array([Vector2(18, 0), Vector2(-12, -12), Vector2(-6, 0), Vector2(-12, 12)])
 	arrow.color = C.lamp_on
@@ -808,6 +922,22 @@ func _update_hud(t: float) -> void:
 			bd = d
 			best = L
 	lbl.prompt.text = near
+	# phụ đề (Ticket-04: chỉ báo hình ảnh cho âm thanh/sự kiện)
+	var dt := get_process_delta_time()
+	for x in subs.duplicate():
+		x[1] -= dt
+		if x[1] <= 0.0:
+			subs.erase(x)
+	lbl.sub.text = "\n".join(subs.map(func(x): return "▶ " + x[0]))
+	lbl.sub.position = Vector2(vp.x / 2 - 220, vp.y - 190)
+	flash.color.a = maxf(0.0, flash.color.a - dt * 1.5)
+	for k in lbl:
+		lbl[k].add_theme_font_size_override("font_size", fs(30 if k == "clock" else 22))
+	# mũi tên mép màn hình chỉ Bóng Mực vừa xuất hiện
+	for sa in spawn_arrows.duplicate():
+		sa[1] -= dt
+		if sa[1] <= 0.0:
+			spawn_arrows.erase(sa)
 	lbl.prompt.position = Vector2(vp.x / 2 - 140, vp.y - 110)
 	var warn := ""
 	if sim.wind_warning():
@@ -818,6 +948,21 @@ func _update_hud(t: float) -> void:
 		warn += "   Bùa Gió %ds" % ceili(sim.charm_t / 60.0)
 	lbl.warn.text = warn
 	lbl.warn.position = Vector2(vp.x / 2 - 120, 56)
+	for i in shade_arrow_nodes.size():
+		var node: Polygon2D = shade_arrow_nodes[i]
+		node.visible = false
+		if i < spawn_arrows.size():
+			for sh in sim.shades:
+				if sh.id == spawn_arrows[i][0]:
+					var wp: Vector3 = sh.pos
+					var behind := cam.is_position_behind(wp)
+					var sp2 := cam.unproject_position(wp)
+					var c2 := vp / 2
+					var d2 := (sp2 - c2) * (-1.0 if behind else 1.0)
+					node.visible = true
+					node.color = danger()
+					node.rotation = d2.angle()
+					node.position = c2 + d2.normalized() * (min(vp.x, vp.y) / 2 - 70)
 	# mũi tên tới đèn chưa sáng gần nhất khi nó ở ngoài màn hình
 	arrow.visible = false
 	if best != null:
@@ -841,7 +986,7 @@ func _unhandled_input(e: InputEvent) -> void:
 		pitch = clampf(pitch + e.relative.y * sens * 0.6, 12.0, 75.0)
 	elif e is InputEventMouseButton and e.pressed and e.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
 		cam_dist = clampf(cam_dist * (0.9 if e.button_index == MOUSE_BUTTON_WHEEL_UP else 1.1), 7.0, 32.0)
-	elif e is InputEventKey and e.pressed and not e.echo and e.keycode in [KEY_ESCAPE, KEY_P]:
+	elif e is InputEventKey and e.pressed and not e.echo and (e.keycode == KEY_ESCAPE or e.physical_keycode == keys.pause):
 		if paused:
 			_play()
 		else:
@@ -862,8 +1007,8 @@ func _physics_process(_dt: float) -> void:
 		return
 	if mode != "play" or paused:
 		return
-	var mx := (1.0 if _key(KEY_A) else 0.0) - (1.0 if _key(KEY_D) else 0.0)  # phải màn hình là -x của contract
-	var mz := (1.0 if _key(KEY_W) else 0.0) - (1.0 if _key(KEY_S) else 0.0)
+	var mx := (1.0 if _act("left") else 0.0) - (1.0 if _act("right") else 0.0)  # phải màn hình là -x của contract
+	var mz := (1.0 if _act("up") else 0.0) - (1.0 if _act("down") else 0.0)
 	if OS.get_environment("DDL_AUTOPLAY") != "":
 		mz = 0.6
 		yaw += 0.3
@@ -872,8 +1017,8 @@ func _physics_process(_dt: float) -> void:
 	for e in sim.shades + sim.drifters:
 		prev_pos[e.id] = e.pos
 	# nhớ phím 0.1 s: gửi cạnh false→true vào đúng tick hành động hợp lệ (chỉ ở lớp nhập phím, không đổi luật)
-	var want := {"jump": _key(KEY_SPACE), "dash": _key(KEY_SHIFT),
-		"pulse": _key(KEY_F) or Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)}
+	var want := {"jump": _act("jump"), "dash": _act("dash"),
+		"pulse": _act("pulse") or Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)}
 	var ready := {"jump": sim.grounded, "dash": sim.dash_t == 0 and (sim.dash_cd == 0 or sim.charm_t > 0),
 		"pulse": sim.pulse_cd == 0 and sim.carried >= int(sim.T["pulse_cost"])}
 	var send := {}
@@ -885,7 +1030,7 @@ func _physics_process(_dt: float) -> void:
 		if send[k]:
 			buffer[k] = 0
 		buffer[k] = max(0, buffer[k] - 1)
-	sim.step({"move": [mx, mz], "cam_yaw_deg": yaw, "jump": send.jump, "interact": _key(KEY_E),
+	sim.step({"move": [mx, mz], "cam_yaw_deg": yaw, "jump": send.jump, "interact": _act("interact"),
 		"pulse": send.pulse, "dash": send.dash})
 	for ev in sim.events:
 		match ev.name:
@@ -893,20 +1038,40 @@ func _physics_process(_dt: float) -> void:
 			"lantern_lit": sfx.play("lit")
 			"refuel": sfx.play("pick")
 			"lantern_out": sfx.play("out")
-			"pulse": sfx.play("pulse")
-			"player_hit": sfx.play("hit")
+			"pulse":
+				sfx.play("pulse")
+				if not reduce_motion:
+					flash.color.a = 0.25
+			"player_hit":
+				sfx.play("hit")
+				if not reduce_motion:
+					shake = 0.35
 			"dash": sfx.play("dash")
-			"shade_spawned": sfx.play("spawn")
+			"shade_spawned":
+				sfx.play("spawn")
+				_say("Bóng Mực xuất hiện!")
+				spawn_arrows.append([ev.data.id, 3.0])
+			"lantern_out":
+				_say("Đèn %s đã tắt" % ev.data.lantern_id)
 	if sim.grounded == false and sim.p_vel.y > 6.6 and sim.p_vel.y <= 7.0:
 		sfx.play("jump")
 	if sim.wind_enabled and not sim.wind_on and (Sim.WIND_EVERY - sim.steps % Sim.WIND_EVERY) == Sim.WIND_WARN:
 		sfx.play("wind")
+		_say("Gió sắp thổi!")
+	for L in sim.lanterns:
+		var low: bool = L.lit and L.fuel < int(sim.T["low_fuel_threshold"]) * Sim.FU
+		if low and not low_seen.get(L.id, false):
+			_say("Đèn %s sắp cạn dầu (< 30)" % L.id)
+		low_seen[L.id] = low
 	var sec := int(ceil(sim.time_left))
+	if sec <= 10 and not said_last10 and sec > 0:
+		said_last10 = true
+		_say("10 giây cuối!")
 	if sec <= 10 and sec != last_sec and sec > 0:
 		sfx.play("tick")
 	last_sec = sec
 	sim.events.clear()
-	creative.tick(_dt, _key(KEY_Q))
+	creative.tick(_dt, _act("wind"))
 	if sim.state != "playing":
 		_show_result()
 
@@ -948,6 +1113,9 @@ func _process(_dt: float) -> void:  # _dt dùng cho làm mượt camera/xoay
 	var want_cam := cam_focus - fwd * cos(pr) * cam_dist * far + Vector3(0, sin(pr) * cam_dist * far, 0)
 	var g: float = sim.ground(want_cam.x, want_cam.z)
 	want_cam.y = maxf(want_cam.y, (g if g > Sim.NO_GROUND else cam_focus.y - 2.0) + 1.0)  # không xuyên đất
+	if shake > 0.0 and not reduce_motion:
+		shake = maxf(0.0, shake - _dt)
+		want_cam += Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)) * shake * 0.6
 	cam.position = want_cam
 	cam.look_at(cam_focus)
 	var focus := cam_focus
