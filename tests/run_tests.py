@@ -644,6 +644,36 @@ def test_target_cleared_outside_drain():
     assert s1["state"] == "chase" and s1["target_lantern_id"] is None, s1
 
 
+# ---------- Phase 4 (thiết kế riêng, vẫn trong luật) ----------
+def test_mote_spawn_farthest_free_point():
+    # Ticket-02 chỉ nói "một điểm trống": ta chọn điểm trống xa Mây nhất (bằng nhau lấy chỉ số nhỏ)
+    c, L, _ = run(ticks=241, scenario={"random_shades": False, "random_drifters": False, "motes": [],
+                                       "player": {"pos": [33, 0, 0]}}, every=241)
+    m = [x for x in snap(L, 241)["motes"] if x["kind"] == "random"]
+    assert len(m) == 1 and near(m[0]["pos"], [-33, 0, 0]), m
+
+
+def test_initial_motes_far_from_start():
+    c, L, _ = run(ticks=1)
+    ps = [m["pos"] for m in snap(L, 0)["motes"]]
+    far = [p for p in ps if abs(math.hypot(p[0], p[2]) - 33) < 0.01]
+    assert len(ps) == 20 and len(far) == 16, ps
+
+
+def test_wander_personalities_speed_capped():
+    # 4 tính cách lang thang khác nhau, không con nào vượt shade_speed
+    sh = [{"id": f"S{i}", "pos": [p[0], 1, p[1]]} for i, p in enumerate([(-30, 0), (30, 0), (0, -30), (0, 30)], 1)]
+    c, L, _ = run(ticks=300, scenario=sc(player={"pos": [0, 0, 0]}, shades=sh), every=1)
+    snaps = [l for l in L if l["type"] == "snapshot"]
+    vmax = T["shade_speed"] / 60 + 1e-3
+    for a, b in zip(snaps, snaps[1:]):
+        for sa, sb in zip(a["shades"], b["shades"]):
+            if sb["state"] == "wander":
+                assert math.hypot(sb["pos"][0] - sa["pos"][0], sb["pos"][2] - sa["pos"][2]) <= vmax, (sa, sb)
+    ends = [x["pos"] for x in snaps[-1]["shades"]]
+    assert len({(round(p[0]), round(p[2])) for p in ends}) == 4, ends
+
+
 if __name__ == "__main__":
     names = sys.argv[1:] or [n for n in list(globals()) if n.startswith("test_")]
     bad = 0

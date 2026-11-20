@@ -22,6 +22,10 @@ const SHADE_LOSE := 18.0
 const SHADE_Y := 1.0
 const SHADE_SPAWNING := 30
 const WANDER_SPEED := 2.0
+## Tính cách khi lang thang theo id (id % 4): tuần tra mép đảo / rình quanh đèn / ngẫu nhiên / bám đuôi ở 14 m.
+## Ticket chỉ quy định tốc độ đuổi; tốc độ lang thang giữ <= shade_speed.
+const WANDER_SPEEDS := [2.5, 2.0, 2.0, 3.5]
+const STALK_R := 14.0
 const PUSH_TICKS := 15
 const RECOIL_TICKS := 60
 const RECOIL_M := 2.0
@@ -201,11 +205,9 @@ func _init(seed: int, tuning: Dictionary, n := 1) -> void:
 			"fuel": 0, "ever_lit": false, "relit_count": 0})
 	for i in LV.charms.size():
 		charms.append({"id": "C%d" % (i + 1), "pos": LV.charms[i], "available": true, "respawn": 0})
-	var pts: Array = LV.motes.duplicate()
-	for i in MOTE_INIT:
-		var j := rng.randi_range(0, pts.size() - 1)
-		_add_mote(pts[j], "random", -1)
-		pts.remove_at(j)
+	# 20 điểm khác nhau, ưu tiên xa điểm xuất phát (bằng nhau lấy chỉ số nhỏ)
+	for pt in _far_points(LV.motes, LV.start).slice(0, MOTE_INIT):
+		_add_mote(pt, "random", -1)
 
 
 func ground(x: float, z: float) -> float:
@@ -719,17 +721,17 @@ func _move_shade(s: Dictionary, player_active: bool) -> void:
 				s["drain_t"] = 0
 				return
 		var goal: Vector3 = p_pos if s["state"] == "chase" else (weak["pos"] if not weak.is_empty() else s["target"])
-		var sp := float(T["shade_speed"]) * float(LV.speed_mul) if s["state"] == "chase" else WANDER_SPEED
+		var sp := float(T["shade_speed"]) * float(LV.speed_mul) if s["state"] == "chase" else _wander_speed(s)
 		var to := Vector3(goal.x - s["pos"].x, 0, goal.z - s["pos"].z)
 		if to.length() <= sp * DT:
 			_shade_step(s, to)
 			if s["state"] == "wander" and weak.is_empty():
-				s["target"] = _random_point()
+				s["target"] = _wander_target(s)
 		else:
 			var pre: Vector3 = s["pos"]
 			_shade_step(s, to.normalized() * sp * DT)
 			if s["state"] == "wander" and pre == s["pos"] and weak.is_empty():
-				s["target"] = _random_point()
+				s["target"] = _wander_target(s)
 		if s["state"] == "wander" and not weak.is_empty() and xz(s["pos"], weak["pos"]) <= DRAIN_RANGE + EPS:
 			s["state"] = "drain"
 			s["drain_t"] = 0
@@ -754,6 +756,34 @@ func _weak_lantern(s: Dictionary) -> Dictionary:
 				best = L
 				bd = d
 	return best
+
+
+## Các điểm theo thứ tự xa `from` nhất (XZ), bằng nhau thì giữ thứ tự gốc.
+static func _far_points(pts: Array, from: Vector3) -> Array:
+	var idx := range(pts.size())
+	idx.sort_custom(func(a, b):
+		var da := xz(pts[a], from)
+		var db := xz(pts[b], from)
+		return da > db + 1e-6 or (absf(da - db) <= 1e-6 and a < b))
+	return idx.map(func(i): return pts[i])
+
+
+func _wander_speed(s: Dictionary) -> float:
+	return minf(WANDER_SPEEDS[_num_id(s["id"]) % 4], float(T["shade_speed"]))
+
+
+func _wander_target(s: Dictionary) -> Vector3:
+	match _num_id(s["id"]) % 4:
+		1:  # tuần tra lần lượt các điểm sương ở mép đảo
+			s["patrol"] = (int(s.get("patrol", rng.randi_range(0, LV.shades.size() - 1))) + 1) % LV.shades.size()
+			return LV.shades[s["patrol"]]
+		2:  # rình quanh một đèn, ngay ngoài vùng an toàn
+			var L: Dictionary = lanterns[rng.randi_range(0, lanterns.size() - 1)]
+			return L["pos"] + _polar(float(T["safe_radius"]) + 1.0, rng.randf_range(0.0, 360.0))
+		0:  # bám đuôi: vòng quanh Mây ở 14 m (ngoài tầm phát hiện 12 m)
+			var a := atan2(s["pos"].z - p_pos.z, s["pos"].x - p_pos.x) + deg_to_rad(40.0)
+			return p_pos + Vector3(cos(a), 0, sin(a)) * STALK_R
+	return _random_point()
 
 
 func _random_point() -> Vector3:
@@ -819,7 +849,7 @@ func _spawn() -> void:
 			if motes.all(func(m): return m["pos"].distance_to(pt) > 0.5):
 				free.append(pt)
 		if not free.is_empty():
-			_add_mote(free[rng.randi_range(0, free.size() - 1)], "random", -1)
+			_add_mote(_far_points(free, p_pos)[0], "random", -1)
 	if random_drifters and steps % DRIFT_EVERY == 0 and drifters.size() < DRIFT_MAX:
 		var pt: Vector3 = LV.shades[rng.randi_range(0, LV.shades.size() - 1)] + Vector3(0, 1.5, 0)
 		var id := "D%d" % next_drifter
