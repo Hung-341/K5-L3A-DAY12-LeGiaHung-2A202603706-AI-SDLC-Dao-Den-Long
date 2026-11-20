@@ -49,6 +49,15 @@ var panel: VBoxContainer
 var sfx: Sfx
 var last_sec := -1
 var mats := {}
+# ---- benchmark (Ticket-04 mục 1) ----
+const SysInfo = preload("res://scripts/sysinfo.gd")
+var bench := {}          # rỗng = chơi bình thường
+var bench_t0 := 0        # usec lúc khung hình đầu của cảnh bench
+var bench_last := 0
+var bench_dts: Array = []
+var bench_load_ms := 0
+var bench_peak_mb := -1.0
+var bench_next_mem := 0.0
 var creative
 var pitch := 40.0       # camera góc nhìn thứ ba: xoay dọc (chuột), zoom (cuộn chuột)
 var cam_dist := 17.0
@@ -86,8 +95,93 @@ func _ready() -> void:
 	panel.alignment = BoxContainer.ALIGNMENT_CENTER
 	panel.set_anchors_preset(Control.PRESET_FULL_RECT)
 	ui.add_child(panel)
+	var args := OS.get_cmdline_user_args()
+	if "--bench" in args:
+		_start_bench(args)
+		return
 	_load_night(int(OS.get_environment("DDL_NIGHT")) if OS.get_environment("DDL_NIGHT") != "" else 1)
 	_show_menu()
+
+
+func _arg(args: PackedStringArray, key: String, def: String) -> String:
+	var i := args.find(key)
+	return args[i + 1] if i >= 0 and i + 1 < args.size() else def
+
+
+func _start_bench(args: PackedStringArray) -> void:
+	bench = {"seed": int(_arg(args, "--seed", "42")), "duration": float(_arg(args, "--duration", "30")),
+		"out": _arg(args, "--out", "bench.json")}
+	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+	DisplayServer.window_set_size(Vector2i(1280, 720))
+	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
+	Engine.max_fps = 0
+	_load_night(1)
+	sim = Sim.new(int(bench.seed), Sim.load_tuning(), 1)
+	sim.setup_bench(int(bench.seed))
+	creative.reset(sim)  # Sương Gai không sinh trong bench (không gọi creative.tick)
+	for d in [mote_nodes, shade_nodes]:
+		for n in d.values():
+			n.queue_free()
+		d.clear()
+	mode = "bench"
+	panel.visible = false
+	menu_bg.visible = false
+
+
+## Gọi mỗi khung hình trong cảnh bench: camera bay vòng, đo dt, ghi bench.json khi đủ thời gian.
+func _bench_frame() -> void:
+	var now := Time.get_ticks_usec()
+	if bench_t0 == 0:
+		bench_t0 = now
+		bench_last = now
+		bench_load_ms = Time.get_ticks_msec()  # từ lúc tiến trình khởi động tới khung hình đầu của cảnh bench
+	var el := (now - bench_t0) / 1e6
+	var a := TAU * el / 15.0  # ngược chiều kim đồng hồ nhìn từ trên (cùng quy ước góc của bản đồ chuẩn)
+	cam.position = Vector3(30.0 * cos(a), 15.0, 30.0 * sin(a))
+	cam.look_at(Vector3.ZERO)
+	(cam.attributes as CameraAttributesPractical).dof_blur_far_distance = 40.0
+	var dt_ms := (now - bench_last) / 1000.0
+	bench_last = now
+	if el >= 3.0:
+		bench_dts.append(dt_ms)
+		if OS.get_name() == "Linux" and el >= bench_next_mem:  # /proc rẻ: lấy mẫu mỗi giây
+			bench_peak_mb = maxf(bench_peak_mb, SysInfo.rss_mb())
+			bench_next_mem = el + 1.0
+	elif el >= 2.5 and bench_peak_mb < 0.0:  # macOS/Windows: gọi tiến trình ngoài tốn ~100 ms, chỉ đo ngoài khoảng đo
+		bench_peak_mb = SysInfo.rss_mb()
+	if el >= 3.0 + bench.duration:
+		bench_peak_mb = maxf(bench_peak_mb, SysInfo.rss_mb())
+		_write_bench()
+		get_tree().quit(0)
+
+
+func _write_bench() -> void:
+	var n := bench_dts.size()
+	var total := 0.0
+	for d in bench_dts:
+		total += d
+	var sorted := bench_dts.duplicate()
+	sorted.sort()
+	var k := maxi(1, ceili(0.01 * n))
+	var worst := 0.0
+	for i in k:
+		worst += sorted[n - 1 - i]
+	var p95: float = sorted[clampi(ceili(0.95 * n) - 1, 0, n - 1)]
+	var info := Engine.get_version_info()
+	var data := {"contract_version": "1.3",
+		"avg_fps": snappedf(1000.0 * n / total, 0.1),
+		"p1_low_fps": snappedf(1000.0 / (worst / k), 0.1),
+		"frame_ms_p95": snappedf(p95, 0.01),
+		"frames": n,
+		"load_ms": bench_load_ms,
+		"peak_mem_mb": snappedf(bench_peak_mb, 0.1),
+		"vsync_off": DisplayServer.window_get_vsync_mode() == DisplayServer.VSYNC_DISABLED,
+		"renderer": "Godot %s, %s, %s" % [info.string, ProjectSettings.get_setting("rendering/renderer/rendering_method"), RenderingServer.get_video_adapter_name()],
+		"os": "%s %s" % [OS.get_name(), OS.get_version()]}
+	var f := FileAccess.open(bench.out, FileAccess.WRITE)
+	f.store_string(JSON.stringify(data, "  ", false) + "\n")
+	f.close()
+	print(JSON.stringify(data))
 
 
 # ---------------- cài đặt ----------------
@@ -256,6 +350,21 @@ func danger() -> Color:
 	return Color("#FFFFFF") if colorblind else C.danger
 
 
+## Viền Bóng Mực: chỉ vẽ mặt sau của quả cầu lớn hơn = đường viền, thân đen vẫn lộ ra (#120A1A / #7A3CFF).
+func _rim_mat() -> StandardMaterial3D:
+	var key := "rim|%s" % colorblind
+	if not mats.has(key):
+		var m := StandardMaterial3D.new()
+		m.albedo_color = rim()
+		m.emission_enabled = true
+		m.emission = rim()
+		m.emission_energy_multiplier = 1.5
+		m.cull_mode = BaseMaterial3D.CULL_FRONT
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mats[key] = m
+	return mats[key]
+
+
 func _mat(c: Color, emit := 0.0, alpha := 1.0) -> StandardMaterial3D:
 	var key := "%s|%s|%s" % [c.to_html(), emit, alpha]
 	if mats.has(key):
@@ -278,22 +387,39 @@ func _mesh(mesh: Mesh, mat: Material, pos := Vector3.ZERO, parent: Node = null) 
 	mi.mesh = mesh
 	mi.material_override = mat
 	mi.position = pos
+	if mesh.get_aabb().size.length() < 1.0:  # vật nhỏ (mắt, nanh, đom đóm, hoa) không đổ bóng
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	(parent if parent else world).add_child(mi)
 	return mi
 
 
+var _mesh_cache := {}
+
+
 func _sphere(r: float) -> SphereMesh:
+	var key := "s%s" % r
+	if _mesh_cache.has(key):
+		return _mesh_cache[key]
 	var s := SphereMesh.new()
 	s.radius = r
 	s.height = r * 2
+	s.radial_segments = 12 if r < 0.3 else (20 if r < 2.0 else 48)
+	s.rings = 6 if r < 0.3 else (10 if r < 2.0 else 24)
+	_mesh_cache[key] = s
 	return s
 
 
 func _cyl(top: float, bottom: float, h: float) -> CylinderMesh:
+	var key := "c%s|%s|%s" % [top, bottom, h]
+	if _mesh_cache.has(key):
+		return _mesh_cache[key]
 	var c := CylinderMesh.new()
 	c.top_radius = top
 	c.bottom_radius = bottom
 	c.height = h
+	c.radial_segments = 64 if maxf(top, bottom) > 5.0 else 12
+	c.rings = 1
+	_mesh_cache[key] = c
 	return c
 
 
@@ -487,7 +613,7 @@ func _make_player() -> Node3D:
 func _make_shade() -> Node3D:
 	var s := Node3D.new()
 	world.add_child(s)
-	var r := _mesh(_sphere(0.78), _mat(rim(), 1.2, 0.35), Vector3.ZERO, s)
+	var r := _mesh(_sphere(0.78), _rim_mat(), Vector3.ZERO, s)
 	r.name = "rim"
 	var body := _mesh(_sphere(0.7), _mat(C.shade), Vector3.ZERO, s)
 	body.name = "body"
@@ -667,6 +793,13 @@ func _key(k: Key) -> bool:
 
 
 func _physics_process(_dt: float) -> void:
+	if mode == "bench":
+		prev_pos = {"player": sim.p_pos}
+		for e in sim.shades:
+			prev_pos[e.id] = e.pos
+		sim.step({})
+		sim.events.clear()
+		return
 	if mode != "play" or paused:
 		return
 	var mx := (1.0 if _key(KEY_A) else 0.0) - (1.0 if _key(KEY_D) else 0.0)  # phải màn hình là -x của contract
@@ -765,10 +898,13 @@ func _process(_dt: float) -> void:  # _dt dùng cho làm mượt camera/xoay
 		n.position = _lerp_pos(s.id, s.pos, a)
 		if Sim.xz(s.pos, sim.p_pos) > 0.1:
 			n.look_at(Vector3(sim.p_pos.x, s.pos.y, sim.p_pos.z), Vector3.UP, true)
-		n.get_node("body").material_override = _mat(C.shade_stun if s.state == "stunned" else C.shade)
-		n.get_node("rim").material_override = _mat(rim(), 1.2, 0.35)
-		for e in ["eye0", "eye1"]:
-			n.get_node(e).material_override = _mat(rim(), 3.0)
+		var look := "%s|%s" % [s.state == "stunned", colorblind]
+		if n.get_meta("look", "") != look:
+			n.set_meta("look", look)
+			n.get_node("body").material_override = _mat(C.shade_stun if s.state == "stunned" else C.shade)
+			n.get_node("rim").material_override = _rim_mat()
+			for e in ["eye0", "eye1"]:
+				n.get_node(e).material_override = _mat(rim(), 3.0)
 		n.scale = Vector3.ONE * (0.4 if s.state == "spawning" else 1.0 + 0.06 * sin(t * 5.0)))
 	_sync(sim.drifters, drifter_nodes, _make_drifter, func(n, d):
 		n.position = _lerp_pos(d.id, d.pos, a)
@@ -803,6 +939,8 @@ func _process(_dt: float) -> void:  # _dt dùng cho làm mượt camera/xoay
 		env.ambient_light_energy = 0.15 + 0.55 * lit / sim.lanterns.size()
 	creative.render(t)
 	_update_orbit(t, ppos)
+	if mode == "bench":
+		_bench_frame()
 	_update_trails(_dt)
 	_update_hud(t)
 
