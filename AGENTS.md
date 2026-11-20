@@ -17,7 +17,9 @@
 - Không dùng `class_name`; dùng `preload` (image Docker và máy chấm có thể chưa import).
 - Không dùng RNG toàn cục; chỉ `sim.rng` (seed từ `--seed`). Output phải giống hệt từng byte giữa hai lần chạy.
 - Sáng tạo thêm chỉ ở `view.gd` hoặc tắt khi headless; không được đổi output headless.
-- Contract hiện tại: v1.1. Tên trạng thái Bóng Mực cố định: spawning, wander, chase, recoil, stunned.
+- Contract hiện tại: v1.2 (dầu đèn, drain, thắng dawn_survived; xem docs/adr/0001). Dầu lưu số nguyên đơn vị 1/60 (`Sim.FU`); vùng an toàn luôn qua `_safe(L)`, không kiểm `lit` trực tiếp.
+- Luật bị thay: xóa/sửa test kèm lý do ngay trong test + CHANGELOG.md.
+- Contract trước: v1.1. Tên trạng thái Bóng Mực cố định: spawning, wander, chase, recoil, stunned.
 - So "trong bán kính r" luôn cộng `EPS`; so mép vùng an toàn dùng dung sai (lỗi float đã gặp ở Phase 2).
 - Mỗi luật mới có ít nhất một test trong `tests/run_tests.py`; test sai vì đổi yêu cầu thì sửa kèm lý do trong `docs/notes/`.
 - Không sửa tay file output; không viết test luôn đạt.

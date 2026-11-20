@@ -34,8 +34,8 @@ godot --path .                                                   # run_cmd: bả
 - Bóng Mực chạm: mất 1 Ngọn Lửa (có 3), rơi một nửa số đom đóm đang mang ra quanh Mây, bất tử 1.5 s. Rơi khỏi đảo: mất 1 Ngọn Lửa và toàn bộ đom đóm, hồi sinh ở giữa đảo sau 1 s.
 - Đèn đã thắp tạo vùng an toàn 6 m mà Bóng Mực không vào được.
 - Ba Đêm: 5 / 6 / 7 đèn, 300 / 330 / 360 s. Đêm 2 có cầu tre và bục nhảy; Đêm 3 có 3 tầng, dốc, gió mạnh. Gió Lạc cướp đom đóm khi Mây mang ≥ 5; Bùa Gió tăng tốc 7.2 m/s và bỏ hồi chiêu Lướt trong 10 s.
-- Thắng một Đêm: thắp đủ đèn. Thua: hết Ngọn Lửa, hoặc hết giờ (bình minh); thua thì chơi lại Đêm đó. Thắng Đêm 3 thì ra màn Bình Minh với tổng điểm.
-- **Điểm (mỗi Đêm, tổng = cộng các Đêm đã thắng):** +10 mỗi đom đóm *nạp vào đèn* · +100 mỗi đèn thắp · +5 mỗi Bóng Mực trúng Tỏa Sáng · khi thắng thêm `floor(giây còn lại) × 2 + 50 × Ngọn Lửa còn lại`.
+- **Từ Phase 3:** đèn có dầu (hao 1/s, Bóng Mực hút 5/s khi dầu < 30), hết dầu thì tắt; thắp lại cần 5 đom đóm; châm dầu bằng E. Thắng khi sống tới bình minh với ≥ 60% đèn đang sáng (3/5, 4/6, 5/7); thua nếu hết Ngọn Lửa hoặc thiếu đèn lúc bình minh. Đêm dài 240 / 270 / 300 s.
+- **Điểm (mỗi Đêm, tổng = cộng các Đêm đã thắng):** +5 mỗi đom đóm nạp vào đèn · +100 thắp lần đầu · +40 thắp lại · +5 mỗi Bóng Mực trúng Tỏa Sáng (+15 nếu nó đang hút dầu) · khi thắng: mỗi đèn sáng +50 + floor(dầu), mỗi Ngọn Lửa +50.
 
 Toàn bộ số liệu nằm trong [game.contract.json](game.contract.json). Từ Phase 1 đã dùng **số liệu chuẩn của Ticket-02**, lý do ở [docs/notes/phase1.md](docs/notes/phase1.md).
 
@@ -45,7 +45,7 @@ Toàn bộ số liệu nằm trong [game.contract.json](game.contract.json). T�
 python3 tests/run_tests.py              # 29 scenario headless, gồm kiểm tra tất định và mã thoát 2
 ```
 
-- Contract: [game.contract.json](game.contract.json) (v1.1). `--night 1|2|3`. Output JSONL gồm snapshot, event, end theo Test Contract.
+- Contract: [game.contract.json](game.contract.json) (v1.2). `--night 1|2|3`. Thay đổi phá vỡ tương thích: [CHANGELOG.md](CHANGELOG.md). Output JSONL gồm snapshot, event, end theo Test Contract.
 - `fall_enabled: true`: đảo bán kính 40 m, rơi khi Y < −10. Không có khái niệm nào để `null`.
 - Bằng chứng từng phase: [docs/proof/](docs/proof/). Ghi chép, giả định, nhật ký AI: [docs/notes/](docs/notes/).
 
@@ -53,7 +53,7 @@ python3 tests/run_tests.py              # 29 scenario headless, gồm kiểm tra
 
 - **Phong cách "đảo đồ chơi trong mơ":** nhân vật chibi đầu to, camera nhìn chéo từ trên cao có tilt-shift (DOF gần/xa), hoa hồng tím rải khắp đảo, trăng lưỡi liềm hồng. Màu chính theo bảng chuẩn; hồng tím chỉ dùng cho chi tiết trang trí.
 - Bóng Mực có mắt tím phát sáng, răng nanh trắng, phình xẹp như đang thở; lúc vừa sinh ra thì nhỏ lại (trạng thái `spawning`, vô hại 0.5 s) để người chơi kịp thấy.
-- Toàn bộ phần thêm chỉ nằm trong `scripts/view.gd`, không đụng `sim.gd`, nên output headless không đổi. Bằng chứng: 56/56 test vẫn đạt ([run_tests.txt](docs/proof/phase2/run_tests.txt)).
+- Toàn bộ phần thêm chỉ nằm trong `scripts/view.gd`, không đụng `sim.gd`, nên output headless không đổi. Bằng chứng: 69/69 test vẫn đạt ([run_tests.txt](docs/proof/phase2/run_tests.txt)).
 - Âm thanh tổng hợp bằng code (`scripts/sfx.gd`), không dùng file âm thanh ngoài.
 
 ## Harness AI

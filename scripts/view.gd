@@ -25,6 +25,7 @@ var total := 0
 var yaw := 0.0
 var sens := 0.25
 var volume := 0.8
+var colorblind := false  # "Bảng màu dễ phân biệt" (Ticket-03 mục 6)
 var paused := false
 var world: Node3D
 var cam: Camera3D
@@ -76,12 +77,14 @@ func _load_settings() -> void:
 	if cf.load("user://settings.cfg") == OK:
 		volume = cf.get_value("audio", "volume", volume)
 		sens = cf.get_value("input", "mouse_sensitivity", sens)
+		colorblind = cf.get_value("display", "colorblind", colorblind)
 
 
 func _save_settings() -> void:
 	var cf := ConfigFile.new()
 	cf.set_value("audio", "volume", volume)
 	cf.set_value("input", "mouse_sensitivity", sens)
+	cf.set_value("display", "colorblind", colorblind)
 	cf.save("user://settings.cfg")
 
 
@@ -117,7 +120,7 @@ func _show_menu() -> void:
 	total = 0
 	_clear_panel()
 	_title("Đảo Đèn Lồng", 52)
-	_title("Thắp lại ánh sáng cho ba hòn đảo trước bình minh", 22)
+	_title("Giữ ba hòn đảo sáng tới bình minh", 22)
 	_button("Bắt đầu", func(): _start_night(1))
 	_button("Cài đặt", _show_settings)
 	_button("Thoát", func(): get_tree().quit())
@@ -141,6 +144,15 @@ func _show_settings() -> void:
 			sfx.set_volume(volume)
 			_save_settings())
 		panel.add_child(s)
+	var cb := CheckButton.new()
+	cb.text = "Bảng màu dễ phân biệt"
+	cb.button_pressed = colorblind
+	cb.add_theme_font_size_override("font_size", 22)
+	cb.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	cb.toggled.connect(func(on):
+		colorblind = on
+		_save_settings())
+	panel.add_child(cb)
 	_button("Quay lại", func(): _show_pause() if paused else _show_menu())
 
 
@@ -191,12 +203,20 @@ func _show_result() -> void:
 	else:
 		sfx.play("lose")
 		_title("Mây đã thua Đêm %d" % night, 42)
-		_title("Hết Ngọn Lửa." if sim.flames <= 0 else "Bình minh đã lên trước khi thắp đủ đèn.", 24)
+		_title("Hết Ngọn Lửa." if sim.flames <= 0 else "Bình minh lên nhưng đảo chưa đủ sáng (cần %d đèn)." % ceili(float(sim.T["win_ratio"]) * sim.lanterns.size() - 1e-9), 24)
 		_button("Chơi lại Đêm", func(): _start_night(night))
 		_button("Về menu", _show_menu)
 
 
 # ---------------- thế giới ----------------
+func rim() -> Color:
+	return Color("#00B3FF") if colorblind else C.shade_rim
+
+
+func danger() -> Color:
+	return Color("#FFFFFF") if colorblind else C.danger
+
+
 func _mat(c: Color, emit := 0.0, alpha := 1.0) -> StandardMaterial3D:
 	var key := "%s|%s|%s" % [c.to_html(), emit, alpha]
 	if mats.has(key):
@@ -252,6 +272,10 @@ func _load_night(n: int) -> void:
 	world = Node3D.new()
 	add_child(world)
 	sim = Sim.new(randi(), Sim.load_tuning(), n)
+	if OS.get_environment("DDL_DEMO") != "":  # chỉ để chụp bằng chứng: đèn đầy / sắp cạn / đã tắt
+		sim.apply_scenario({"player": {"pos": [6, 0, 14]}, "lanterns": [{"id": "L1", "lit": true, "fuel": 80},
+			{"id": "L2", "lit": true, "fuel": 20}, {"id": "L5", "ever_lit": true}]})
+		colorblind = OS.get_environment("DDL_DEMO") == "cb"
 	yaw = 0.0
 	last_sec = -1
 	env = Environment.new()
@@ -379,7 +403,19 @@ func _make_lantern(L: Dictionary) -> void:
 	n.add_child(light)
 	var ring := _mesh(_cyl(6.0, 6.0, 0.05), _mat(C.lamp_on, 0.4, 0.12), Vector3(0, 0.05, 0), n)
 	ring.visible = false
-	lantern_nodes[L.id] = {"lamp": lamp, "light": light, "ring": ring, "lit": false, "dep": -1}
+	# vết rách trên giấy đèn tắt (phân biệt không cần màu)
+	var tear := _mesh(BoxMesh.new(), _mat(Color("#1A1A22")), Vector3(0.2, 3.4, 0.56), n)
+	tear.scale = Vector3(0.12, 0.7, 0.02)
+	tear.rotation_degrees.z = 25
+	# thanh dầu: nền + phần đầy, quay về camera trong _process
+	var bar := Node3D.new()
+	bar.position = Vector3(0, 5.4, 0)
+	n.add_child(bar)
+	var bg := _mesh(BoxMesh.new(), _mat(Color("#1B2350"), 0.0, 0.8), Vector3.ZERO, bar)
+	bg.scale = Vector3(2.0, 0.22, 0.05)
+	var fill := _mesh(BoxMesh.new(), _mat(C.lamp_on, 2.0), Vector3(0, 0, 0.03), bar)
+	fill.scale = Vector3(2.0, 0.16, 0.05)
+	lantern_nodes[L.id] = {"lamp": lamp, "light": light, "ring": ring, "tear": tear, "bar": bar, "fill": fill}
 
 
 ## Mây: chibi đầu to, áo kem, khăn đỏ, nón lá treo đèn lồng nhỏ.
@@ -408,11 +444,12 @@ func _make_player() -> Node3D:
 func _make_shade() -> Node3D:
 	var s := Node3D.new()
 	world.add_child(s)
-	_mesh(_sphere(0.78), _mat(C.shade_rim, 1.2, 0.35), Vector3.ZERO, s)
+	var r := _mesh(_sphere(0.78), _mat(rim(), 1.2, 0.35), Vector3.ZERO, s)
+	r.name = "rim"
 	var body := _mesh(_sphere(0.7), _mat(C.shade), Vector3.ZERO, s)
 	body.name = "body"
 	for x in [-0.22, 0.22]:
-		_mesh(_sphere(0.09), _mat(C.shade_rim, 3.0), Vector3(x, 0.18, 0.6), s)
+		_mesh(_sphere(0.09), _mat(rim(), 3.0), Vector3(x, 0.18, 0.6), s).name = "eye%d" % int(x > 0)
 	for x in [-0.15, 0.0, 0.15]:
 		var f := _mesh(_cyl(0.0, 0.06, 0.18), _mat(Color.WHITE), Vector3(x, -0.12, 0.64), s)
 		f.rotation_degrees.x = 180
@@ -456,15 +493,15 @@ func _build_hud() -> void:
 	hud.set_anchors_preset(Control.PRESET_FULL_RECT)
 	hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	ui.add_child(hud)
-	for k in ["flames", "clock", "right", "prompt", "dash", "pulse", "warn"]:
+	for k in ["flames", "clock", "right", "prompt", "dash", "pulse", "warn", "cap"]:
 		lbl[k] = _label(hud)
 	lbl.clock.add_theme_font_size_override("font_size", 30)
 	lbl.right.add_theme_color_override("font_color", C.gold)
 	lbl.flames.add_theme_color_override("font_color", C.lamp_on)
 	lbl.warn.add_theme_color_override("font_color", C.drifter)
-	for i in 10:
+	for i in 20:
 		var c := ColorRect.new()
-		c.size = Vector2(26, 26)
+		c.size = Vector2(18, 26)
 		c.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		hud.add_child(c)
 		cells.append(c)
@@ -480,16 +517,23 @@ func _update_hud(t: float) -> void:
 	var tl: float = max(sim.time_left, 0.0)
 	lbl.flames.text = "Ngọn Lửa  " + "♥ ".repeat(sim.flames) + "♡ ".repeat(max(0, 3 - sim.flames))
 	lbl.flames.position = Vector2(24, 18)
-	lbl.clock.text = "%02d:%02d" % [int(tl) / 60, int(tl) % 60]
+	lbl.clock.text = ("⚠ " if colorblind and tl <= 30 else "") + "%02d:%02d" % [int(tl) / 60, int(tl) % 60]
 	lbl.clock.position = Vector2(vp.x / 2 - 40, 14)
-	lbl.clock.add_theme_color_override("font_color", C.danger if tl <= 30 else C.ui)
+	lbl.clock.add_theme_color_override("font_color", danger() if tl <= 30 else C.ui)
 	lbl.clock.visible = tl > 30 or int(t * 4) % 2 == 0
 	var lit: int = sim.lanterns.filter(func(L): return L.lit).size()
-	lbl.right.text = "Đèn %d/%d   Điểm %d" % [lit, sim.lanterns.size(), sim.score]
-	lbl.right.position = Vector2(vp.x - 300, 18)
-	for i in 10:
-		cells[i].position = Vector2(vp.x / 2 - 150 + i * 30, vp.y - 56)
+	var need := ceili(float(sim.T["win_ratio"]) * sim.lanterns.size() - 1e-9)
+	lbl.right.text = "Đèn sáng %d/%d (cần %d)   Điểm %d" % [lit, sim.lanterns.size(), need, sim.score]
+	lbl.right.add_theme_color_override("font_color", C.gold if lit >= need else danger())
+	lbl.right.position = Vector2(vp.x - 400, 18)
+	var cap: int = sim.capacity()
+	for i in cells.size():
+		cells[i].visible = i < cap
+		cells[i].size = Vector2(18, 26)
+		cells[i].position = Vector2(vp.x / 2 - cap * 11 + i * 22, vp.y - 56)
 		cells[i].color = C.mote_halo if i < sim.carried else Color(C.ui, 0.18)
+	lbl.cap.text = "%d/%d" % [sim.carried, cap]
+	lbl.cap.position = Vector2(vp.x / 2 + cap * 11 + 8, vp.y - 60)
 	lbl.dash.text = "Lướt " + ("✓" if sim.dash_cd == 0 or sim.charm_t > 0 else "%.1fs" % (sim.dash_cd / 60.0))
 	lbl.pulse.text = "Tỏa Sáng " + ("✓" if sim.pulse_cd == 0 and sim.carried >= 3 else ("%.1fs" % (sim.pulse_cd / 60.0) if sim.pulse_cd > 0 else "cần 3"))
 	lbl.dash.position = Vector2(vp.x - 210, vp.y - 92)
@@ -499,10 +543,12 @@ func _update_hud(t: float) -> void:
 	var bd := INF
 	for L in sim.lanterns:
 		if L.lit:
+			if Sim.xz(sim.p_pos, L.pos) <= 2.0 and L.fuel < sim._fmax():
+				near = "E — Châm dầu (%d/100)" % int(L.fuel / float(Sim.FU))
 			continue
 		var d := Sim.xz(sim.p_pos, L.pos)
 		if d <= 2.0:
-			near = "E — Nạp ánh sáng (%d/10)" % L.deposited
+			near = "E — Nạp ánh sáng (%d/%d)" % [L.deposited, int(sim.T["relight_cost"]) if L.ever_lit else int(sim.T["lantern_cost"])]
 		if d < bd:
 			bd = d
 			best = L
@@ -580,6 +626,8 @@ func _physics_process(_dt: float) -> void:
 		match ev.name:
 			"mote_picked", "charm_picked": sfx.play("pick")
 			"lantern_lit": sfx.play("lit")
+			"refuel": sfx.play("pick")
+			"lantern_out": sfx.play("out")
 			"pulse": sfx.play("pulse")
 			"player_hit": sfx.play("hit")
 			"dash": sfx.play("dash")
@@ -641,6 +689,9 @@ func _process(_dt: float) -> void:  # _dt dùng cho làm mượt camera/xoay
 		if Sim.xz(s.pos, sim.p_pos) > 0.1:
 			n.look_at(Vector3(sim.p_pos.x, s.pos.y, sim.p_pos.z), Vector3.UP, true)
 		n.get_node("body").material_override = _mat(C.shade_stun if s.state == "stunned" else C.shade)
+		n.get_node("rim").material_override = _mat(rim(), 1.2, 0.35)
+		for e in ["eye0", "eye1"]:
+			n.get_node(e).material_override = _mat(rim(), 3.0)
 		n.scale = Vector3.ONE * (0.4 if s.state == "spawning" else 1.0 + 0.06 * sin(t * 5.0)))
 	_sync(sim.drifters, drifter_nodes, _make_drifter, func(n, d):
 		n.position = _lerp_pos(d.id, d.pos, a)
@@ -652,14 +703,24 @@ func _process(_dt: float) -> void:  # _dt dùng cho làm mượt camera/xoay
 		n.visible = c.available
 		n.rotation.y = t * 1.5)
 	var lit := 0
+	var blink := int(t * 2.0) % 2 == 0  # 1 Hz: sáng 0.5 s, tối 0.5 s
 	for L in sim.lanterns:
 		var ln: Dictionary = lantern_nodes[L.id]
-		if ln.lit != L.lit or ln.dep != L.deposited:
-			ln.lamp.material_override = _mat(C.lamp_on, 3.0) if L.lit else _mat(C.lamp_off.lerp(C.lamp_on, snappedf(L.deposited / 10.0 * 0.5, 0.05)))
-			ln.light.light_energy = 2.5 if L.lit else 0.0
-			ln.ring.visible = L.lit
-			ln.lit = L.lit
-			ln.dep = L.deposited
+		var fuel: float = L.fuel / float(Sim.FU)
+		var low: bool = L.lit and fuel < float(sim.T["low_fuel_threshold"])
+		var on: bool = L.lit and (not low or blink)
+		var cost: int = int(sim.T["relight_cost"]) if L.ever_lit else int(sim.T["lantern_cost"])
+		ln.lamp.material_override = _mat(C.lamp_on, 3.0) if on else _mat(C.lamp_off.lerp(C.lamp_on, snappedf(float(L.deposited) / cost * 0.5, 0.05)))
+		ln.lamp.scale = Vector3(1.1, 1.3, 1.1) if L.lit else Vector3(1.1 * 0.8, 1.3 * 0.8, 1.1 * 0.8)  # đèn tắt xẹp 20%
+		ln.tear.visible = not L.lit
+		ln.light.light_energy = (2.5 if not low else 1.4) if on else 0.0
+		ln.ring.visible = L.lit and not low
+		ln.bar.visible = L.lit and (not low or blink)
+		ln.bar.look_at(cam.global_position, Vector3.UP, true)
+		var f := clampf(fuel / 100.0, 0.0, 1.0)
+		ln.fill.scale.x = 2.0 * max(f, 0.001)
+		ln.fill.position.x = -1.0 + f
+		ln.fill.material_override = _mat(danger() if low else C.lamp_on, 2.0)
 		lit += int(L.lit)
 	if mode != "dawn":
 		env.ambient_light_energy = 0.15 + 0.55 * lit / sim.lanterns.size()
