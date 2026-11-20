@@ -7,7 +7,9 @@ static func rss_mb() -> float:
 		"Linux", "FreeBSD":
 			var f := FileAccess.open("/proc/self/status", FileAccess.READ)
 			if f:
-				for line in f.get_as_text().split("\n"):
+				# /proc báo kích thước 0 nên get_as_text() rỗng; phải đọc từng dòng tới EOF
+				while not f.eof_reached():
+					var line := f.get_line()
 					if line.begins_with("VmRSS:"):
 						return float(line.split(":")[1].strip_edges().split(" ")[0]) / 1024.0
 		"macOS":

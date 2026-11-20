@@ -9,6 +9,7 @@ Máy: Windows 11 (10.0.26200), NVIDIA GeForce GTX 1660 Ti, **cắm sạc**. Godo
 |---|---|---|---|
 | Benchmark `./bench.sh --seed 42 --duration 30` | avg_fps **135.9**, p1_low_fps **43.0**, p95 12.23 ms, load_ms **2754**, peak RSS 584.6 MB, vsync tắt, 4077 khung hình | avg ≥ 60, p1_low ≥ 30, load ≤ 10000 | [bench.json](bench.json) |
 | Soak `./headless.sh --soak --seed 7 --nights 10` | crashes **0**, RSS 93.7 → 93.9 MB (×1.002) | crashes = 0, end ≤ 1.2 × start | [soak.json](soak.json) |
+| Soak trên Linux (Docker, như máy chấm không có Godot) | crashes **0**, RSS 113.2 → 113.4 MB | như trên | [soak-linux-docker.json](soak-linux-docker.json) |
 
 Khi chạy pin, driver khóa ở 30 FPS (đã ghi ở Phase 2). Bench cần cắm sạc.
 
