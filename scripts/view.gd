@@ -5,6 +5,7 @@ extends Node3D
 const Sim = preload("res://scripts/sim.gd")
 const Sfx = preload("res://scripts/sfx.gd")
 const Creative = preload("res://scripts/creative.gd")
+const Leaderboard = preload("res://scripts/leaderboard.gd")
 const C := {
 	"sky": Color("#0E1430"), "fog": Color("#1B2350"), "grass": Color("#2F5D50"), "sand": Color("#C9B48A"),
 	"wood": Color("#6B4A2F"), "sea": Color("#12384A"), "lamp_on": Color("#FFB347"), "lamp_core": Color("#FFE9B0"),
@@ -27,6 +28,7 @@ var yaw := 0.0
 var sens := 0.25
 var volume := 0.8
 var colorblind := false  # "Bảng màu dễ phân biệt" (Ticket-03 mục 6)
+var big_text := false   # Ticket-04: chữ lớn ×1.25
 var skin := 0  # phụ kiện; áo #E8E2D0, khăn #C8102E, nón lá + đèn lồng giữ nguyên theo PRD/bảng màu
 const SKINS := ["Cổ điển", "Hoa cài nón", "Đèn cá chép", "Ba lô lá"]
 var orbit: Array = []   # đom đóm bay quanh Mây = số đang mang (bổ sung cho thanh HUD bắt buộc)
@@ -49,6 +51,9 @@ var panel: VBoxContainer
 var sfx: Sfx
 var last_sec := -1
 var mats := {}
+var nights_won := 0
+var run_seed := 0
+var saved_run := false
 # ---- benchmark (Ticket-04 mục 1) ----
 const SysInfo = preload("res://scripts/sysinfo.gd")
 var bench := {}          # rỗng = chơi bình thường
@@ -234,17 +239,60 @@ func _show_menu() -> void:
 	mode = "menu"
 	paused = false
 	total = 0
+	nights_won = 0
+	saved_run = false
 	_clear_panel()
 	_title("Đảo Đèn Lồng", 52)
 	_title("Giữ ba hòn đảo sáng tới bình minh", 22)
 	_button("Bắt đầu", func(): _start_night(1))
 	_button("Chọn Đêm", _show_select)
+	_button("Bảng xếp hạng", _show_leaderboard)
 	_button("Trang phục: " + SKINS[skin], func():
 		skin = (skin + 1) % SKINS.size()
 		_save_settings()
 		_show_menu())
 	_button("Cài đặt", _show_settings)
 	_button("Thoát", func(): get_tree().quit())
+
+
+## Nhập tên lưu điểm (sau Bình Minh hoặc khi thua). Mỗi lượt chơi lưu một lần.
+func _name_entry() -> void:
+	if saved_run:
+		return
+	var row := HBoxContainer.new()
+	row.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	var le := LineEdit.new()
+	le.placeholder_text = "Tên (3–12 ký tự)"
+	le.max_length = 12
+	le.custom_minimum_size = Vector2(240, 44)
+	le.add_theme_font_size_override("font_size", fs(22))
+	var msg := _label(panel, "Tổng điểm %d · %d Đêm thắng" % [total, nights_won], fs(20))
+	msg.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	var b := Button.new()
+	b.text = "Lưu điểm"
+	b.add_theme_font_size_override("font_size", fs(22))
+	b.pressed.connect(func():
+		if not Leaderboard.valid_name(le.text):
+			msg.text = "⚠ Tên 3–12 ký tự: chữ, số hoặc _"
+			return
+		Leaderboard.save_entries(Leaderboard.add(Leaderboard.load_entries(), le.text, total, nights_won, run_seed))
+		saved_run = true
+		row.queue_free()
+		msg.text = "Đã lưu vào Bảng xếp hạng ✓")
+	row.add_child(le)
+	row.add_child(b)
+	panel.add_child(row)
+
+
+func _show_leaderboard() -> void:
+	_clear_panel()
+	_title("Bảng xếp hạng", 40)
+	var e := Leaderboard.load_entries()
+	if e.is_empty():
+		_title("Chưa có điểm nào. Hãy giữ đảo sáng tới bình minh!", 22)
+	for i in e.size():
+		_title("%2d.  %-12s  %6d điểm  ·  %d Đêm  ·  %s" % [i + 1, e[i].name, e[i].score, e[i].nights_won, str(e[i].achieved_at).substr(0, 10)], 20)
+	_button("Quay lại", _show_menu)
 
 
 ## Chọn Đêm: thêm vào menu, không đổi chuỗi bắt buộc (vẫn giới thiệu → chơi → kết quả → Đêm kế).
@@ -254,6 +302,8 @@ func _show_select() -> void:
 	for n in [1, 2, 3]:
 		_button("Đêm %d · %s" % [n, Sim.level(n).name], func():
 			total = 0
+			nights_won = 0
+			saved_run = false
 			_start_night(n))
 	_button("Quay lại", _show_menu)
 
@@ -321,6 +371,7 @@ func _show_result() -> void:
 	_clear_panel()
 	if sim.state == "won":
 		total += sim.score
+		nights_won += 1
 		sfx.play("win")
 		if night == 3:
 			mode = "dawn"
@@ -328,6 +379,7 @@ func _show_result() -> void:
 			env.ambient_light_energy = 1.2
 			_title("Bình Minh", 56)
 			_title("Ba hòn đảo đã sáng trở lại. Tổng điểm: %d" % total, 26)
+			_name_entry()
 			_button("Về menu", _show_menu)
 		else:
 			_title("Đêm %d hoàn thành!" % night, 42)
@@ -337,6 +389,7 @@ func _show_result() -> void:
 		sfx.play("lose")
 		_title("Mây đã thua Đêm %d" % night, 42)
 		_title("Hết Ngọn Lửa." if sim.flames <= 0 else "Bình minh lên nhưng đảo chưa đủ sáng (cần %d đèn)." % ceili(float(sim.T["win_ratio"]) * sim.lanterns.size() - 1e-9), 24)
+		_name_entry()
 		_button("Chơi lại Đêm", func(): _start_night(night))
 		_button("Về menu", _show_menu)
 
@@ -436,7 +489,10 @@ func _load_night(n: int) -> void:
 		d.clear()
 	world = Node3D.new()
 	add_child(world)
-	sim = Sim.new(randi(), Sim.load_tuning(), n)
+	var seed := randi()
+	if total == 0 and nights_won == 0:
+		run_seed = seed
+	sim = Sim.new(seed, Sim.load_tuning(), n)
 	if OS.get_environment("DDL_DEMO") != "":  # chỉ để chụp bằng chứng: đèn đầy / sắp cạn / đã tắt
 		sim.apply_scenario({"player": {"pos": [6, 0, 14]}, "lanterns": [{"id": "L1", "lit": true, "fuel": 80},
 			{"id": "L2", "lit": true, "fuel": 20}, {"id": "L5", "ever_lit": true}]})
@@ -646,6 +702,10 @@ func _make_charm() -> Node3D:
 
 
 # ---------------- HUD ----------------
+func fs(n: int) -> int:
+	return int(round(maxi(n, 18) * (1.25 if big_text else 1.0)))  # tối thiểu 18 px ở 1280×720
+
+
 func _label(parent: Node, text := "", size := 22) -> Label:
 	var l := Label.new()
 	l.text = text

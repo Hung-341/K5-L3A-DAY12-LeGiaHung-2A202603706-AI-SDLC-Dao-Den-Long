@@ -1,5 +1,5 @@
 """Scenario tests chạy headless theo Test Contract v1.0. Chạy: python tests/run_tests.py [tên_test ...]"""
-import json, math, os, shutil, subprocess, sys, tempfile
+import json, math, os, re, shutil, subprocess, sys, tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GODOT = os.environ.get("GODOT") or shutil.which("godot") or r"D:\VinAI\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64_console.exe"
@@ -695,6 +695,33 @@ def test_soak_deterministic_results():
                         "--nights", "2", "--out", out], capture_output=True, text=True, timeout=300)
         outs.append(json.load(open(out, encoding="utf-8"))["results"])
     assert outs[0] == outs[1], outs
+
+
+def _lb(env, *args):
+    return subprocess.run([GODOT, "--headless", "--path", ROOT, "--"] + list(args), capture_output=True,
+                          text=True, timeout=60, env=env)
+
+
+def test_leaderboard_order_top10_export():
+    env = dict(os.environ, DDL_LB_PATH=os.path.join(TMP, "lb.json"))
+    for i, sc_ in enumerate([300, 500, 500, 100, 700, 200, 650, 50, 400, 450, 600, 10]):
+        assert _lb(env, "--lb-add", f"P{i:02d}", str(sc_), str(i % 4), str(i)).returncode == 0
+    out = os.path.join(TMP, "lb_out.json")
+    assert _lb(env, "--export-leaderboard", out).returncode == 0
+    e = json.load(open(out, encoding="utf-8"))["entries"]
+    assert len(e) == 10, len(e)
+    assert [x["score"] for x in e] == sorted([x["score"] for x in e], reverse=True)
+    assert [x["name"] for x in e if x["score"] == 500] == ["P01", "P02"]   # bằng điểm: ai đạt trước đứng trên
+    assert all(set(x) == {"name", "score", "nights_won", "achieved_at", "seed"} for x in e)
+    assert all(re.match(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d$", x["achieved_at"]) for x in e), e[0]
+
+
+def test_leaderboard_name_rules():
+    env = dict(os.environ, DDL_LB_PATH=os.path.join(TMP, "lb2.json"))
+    for bad in ["ab", "abcdefghijklm", "a b c", "bad-name!"]:
+        assert _lb(env, "--lb-add", bad, "1", "0", "1").returncode == 2, bad
+    for good in ["abc", "Mây_01", "Nguyễn_Văn"]:
+        assert _lb(env, "--lb-add", good, "1", "0", "1").returncode == 0, good
 
 
 if __name__ == "__main__":
