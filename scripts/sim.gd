@@ -148,6 +148,7 @@ var rng := RandomNumberGenerator.new()
 var events: Array = []
 var steps := 0          # sim_tick: số bước gameplay đã chạy (đứng yên khi tạm dừng)
 var paused := false
+var bench := false  # Ticket-04: tắt sinh thêm, sát thương, nhặt, hao dầu, kết thúc; Bóng Mực vẫn wander
 var state := "playing"
 var dur0 := 300.0
 var time_left := 300.0
@@ -208,6 +209,26 @@ func _init(seed: int, tuning: Dictionary, n := 1) -> void:
 	# 20 điểm khác nhau, ưu tiên xa điểm xuất phát (bằng nhau lấy chỉ số nhỏ)
 	for pt in _far_points(LV.motes, LV.start).slice(0, MOTE_INIT):
 		_add_mote(pt, "random", -1)
+
+
+## Cảnh benchmark chuẩn (Ticket-04): 200 Bóng Mực wander + 100 đom đóm rải đều trên đảo, L1–L3 sáng đầy dầu.
+func setup_bench(seed: int) -> void:
+	bench = true
+	random_motes = false
+	random_shades = false
+	random_drifters = false
+	var r := RandomNumberGenerator.new()
+	r.seed = seed
+	motes.clear()
+	shades.clear()
+	next_shade = 1
+	for i in 200:
+		add_shade(_polar(39.0 * sqrt(r.randf()), r.randf_range(0.0, 360.0), SHADE_Y), "", "wander")
+	for i in 100:
+		_add_mote(_polar(39.0 * sqrt(r.randf()), r.randf_range(0.0, 360.0)), "random", -1)
+	for i in 3:
+		lanterns[i]["lit"] = true
+		lanterns[i]["fuel"] = _fmax()
 
 
 func ground(x: float, z: float) -> float:
@@ -388,7 +409,7 @@ func step(inp: Dictionary) -> void:
 				motes.erase(m)
 	# 2b. dầu: hao 1/s + bị hút 5/s mỗi bóng drain; ngay sau đó đèn hết dầu tắt
 	for L in lanterns:
-		if L["lit"]:
+		if L["lit"] and not bench:
 			L["fuel"] -= int(round(float(T["fuel_decay_per_s"]) * FU / 60.0))
 	var drain_ev := []
 	for s in shades:
@@ -423,7 +444,7 @@ func step(inp: Dictionary) -> void:
 		_move_player(inp, jump, dash)
 	var active := fall_wait == 0
 	# 4. nhặt đom đóm và bùa
-	if active:
+	if active and not bench:
 		for m in motes.duplicate():
 			if carried >= capacity():
 				break
@@ -457,11 +478,11 @@ func step(inp: Dictionary) -> void:
 	# 8. Bóng Mực và Gió Lạc
 	for s in shades:
 		if _in_safe(s["pos"]).is_empty():  # bóng đang bị đẩy khỏi vùng an toàn thì không tự di chuyển
-			_move_shade(s, active)
+			_move_shade(s, active and not bench)
 	for d in drifters.duplicate():
 		_move_drifter(d, active)
 	# 9. chạm: Gió Lạc cướp trước, rồi Bóng Mực
-	if active:
+	if active and not bench:
 		for d in drifters:
 			if d.state == "chase" and d.born < steps and xz(p_pos, d.pos) <= DRIFT_TOUCH + EPS and carried > 0:
 				var amt: int = min(DRIFT_STEAL, carried)
@@ -479,6 +500,8 @@ func step(inp: Dictionary) -> void:
 					_hit(s)
 					break
 	# 10. sinh
+	if bench:
+		return
 	_spawn()
 	# 11. thắng/thua
 	# v1.2: không thắng sớm; xét ở tick bình minh, hết Ngọn Lửa luôn thua trước

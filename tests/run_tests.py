@@ -87,7 +87,8 @@ def test_contract_fields():
     for k in ["fuel_max", "fuel_decay_per_s", "fuel_per_mote", "relight_cost", "win_ratio", "drain_per_s",
               "low_fuel_threshold", "capacity_max"]:
         assert k in T, k
-    assert CONTRACT["contract_version"] == "1.2"
+    # v1.3 (Ticket-04): thêm bench_cmd, soak_cmd
+    assert CONTRACT["contract_version"] == "1.3" and "bench_cmd" in CONTRACT and "soak_cmd" in CONTRACT
 
 
 # ---------- Task 3: inputs/scenario ----------
@@ -672,6 +673,28 @@ def test_wander_personalities_speed_capped():
                 assert math.hypot(sb["pos"][0] - sa["pos"][0], sb["pos"][2] - sa["pos"][2]) <= vmax, (sa, sb)
     ends = [x["pos"] for x in snaps[-1]["shades"]]
     assert len({(round(p[0]), round(p[2])) for p in ends}) == 4, ends
+
+
+# ---------- Phase 4 / Contract v1.3 ----------
+def test_soak():
+    out = os.path.join(TMP, "soak.json")
+    p = subprocess.run([GODOT, "--headless", "--path", ROOT, "--", "--headless-run", "--soak", "--seed", "7",
+                        "--nights", "3", "--out", out], capture_output=True, text=True, timeout=300)
+    assert p.returncode == 0, p.stderr[-300:]
+    d = json.load(open(out, encoding="utf-8"))
+    assert d["nights"] == 3 and d["crashes"] == 0 and len(d["results"]) == 3, d
+    assert all(r in ("won", "lost") for r in d["results"]) and d["duration_s"] > 0, d
+    assert d["mem_start_mb"] > 0 and d["mem_end_mb"] <= 1.2 * d["mem_start_mb"], d
+
+
+def test_soak_deterministic_results():
+    outs = []
+    for i in range(2):
+        out = os.path.join(TMP, f"soak{i}.json")
+        subprocess.run([GODOT, "--headless", "--path", ROOT, "--", "--headless-run", "--soak", "--seed", "3",
+                        "--nights", "2", "--out", out], capture_output=True, text=True, timeout=300)
+        outs.append(json.load(open(out, encoding="utf-8"))["results"])
+    assert outs[0] == outs[1], outs
 
 
 if __name__ == "__main__":

@@ -14,7 +14,7 @@ static func run(args: PackedStringArray) -> int:
 	var i := 0
 	while i < args.size():
 		var a := args[i]
-		if a.begins_with("--") and a != "--headless-run":
+		if a.begins_with("--") and not a in ["--headless-run", "--soak"]:
 			if i + 1 >= args.size():
 				printerr("thiếu giá trị cho ", a)
 				return 1
@@ -22,6 +22,8 @@ static func run(args: PackedStringArray) -> int:
 			i += 2
 		else:
 			i += 1
+	if "--soak" in args:
+		return _soak(opt)
 	for k in ["--seed", "--ticks", "--out"]:
 		if not opt.has(k):
 			printerr("thiếu tham số ", k)
@@ -203,3 +205,56 @@ static func _check_scenario(d: Dictionary, n_lanterns: int) -> String:
 	if d.has("time_left_s") and not (_num(d["time_left_s"]) and d["time_left_s"] > 0):
 		return "time_left_s phải là số > 0"
 	return ""
+
+
+## Soak test (Ticket-04 mục 2): nhiều Đêm liên tiếp trong cùng tiến trình, input ngẫu nhiên theo seed.
+static func _soak(opt: Dictionary) -> int:
+	for k in ["--seed", "--nights", "--out"]:
+		if not opt.has(k) or (k != "--out" and not opt[k].is_valid_int()):
+			printerr("soak cần --seed, --nights (số nguyên) và --out")
+			return 1
+	var SysInfo = load("res://scripts/sysinfo.gd")
+	var seed := int(opt["--seed"])
+	var nights := int(opt["--nights"])
+	var tuning := Sim.load_tuning()
+	var results := []
+	var crashes := 0
+	var mem_start := -1.0
+	var t0 := Time.get_ticks_msec()
+	var sim = null
+	for i in nights:
+		var night := i % 3 + 1
+		sim = Sim.new(seed + i, tuning, night)
+		if i == 0:
+			mem_start = SysInfo.rss_mb()
+		var r := RandomNumberGenerator.new()
+		r.seed = seed + i
+		var limit := int(round(float(tuning["night%d_duration_s" % night]) * 60.0)) + 1
+		var inp := {"move": [0.0, 0.0], "cam_yaw_deg": 0.0}
+		var k := 0
+		while sim.state == "playing" and k < limit:
+			if k % 30 == 0:
+				var a := r.randf_range(0.0, TAU)
+				inp["move"] = [cos(a), sin(a)]
+			inp["jump"] = r.randf() < 0.05
+			inp["dash"] = r.randf() < 0.03
+			inp["pulse"] = r.randf() < 0.02
+			inp["interact"] = r.randf() < 0.10
+			sim.step(inp)
+			sim.events.clear()
+			k += 1
+		if sim.state == "playing":
+			crashes += 1  # không kết thúc trong thời lượng chuẩn = lỗi logic
+			results.append("error")
+		else:
+			results.append(sim.state)
+	sim = null  # reset xong Đêm cuối
+	var out := FileAccess.open(opt["--out"], FileAccess.WRITE)
+	if out == null:
+		printerr("không ghi được ", opt["--out"])
+		return 1
+	out.store_string(JSON.stringify({"nights": nights, "crashes": crashes, "results": results,
+		"mem_start_mb": snappedf(mem_start, 0.1), "mem_end_mb": snappedf(SysInfo.rss_mb(), 0.1),
+		"duration_s": snappedf((Time.get_ticks_msec() - t0) / 1000.0, 0.1)}, "  ", false) + "\n")
+	out.close()
+	return 0
