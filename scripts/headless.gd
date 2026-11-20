@@ -1,5 +1,6 @@
-class_name HeadlessRun
+# HeadlessRun
 extends RefCounted
+const Sim = preload("res://scripts/sim.gd")
 ## Chạy headless theo Test Contract. Trả exit code: 0 ok, 1 lỗi tham số/IO, 2 file inputs/scenario sai định dạng.
 
 class BadFormat:

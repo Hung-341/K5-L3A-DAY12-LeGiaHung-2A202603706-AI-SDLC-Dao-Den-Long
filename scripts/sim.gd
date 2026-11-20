@@ -1,4 +1,4 @@
-class_name Sim
+# Sim: luật chơi (nạp bằng preload, không dùng class_name để chạy được khi chưa import)
 extends RefCounted
 ## Toàn bộ luật chơi. Không phụ thuộc node; GUI và headless cùng gọi step().
 ## Thứ tự trong step() theo Ticket-02 "Thứ tự xử lý trong một tick".
