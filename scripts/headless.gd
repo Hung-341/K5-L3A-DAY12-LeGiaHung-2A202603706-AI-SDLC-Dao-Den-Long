@@ -29,9 +29,10 @@ static func run(args: PackedStringArray) -> int:
 	if not (opt["--seed"].is_valid_int() and opt["--ticks"].is_valid_int() and opt["--snapshot-every"].is_valid_int()):
 		printerr("--seed/--ticks/--snapshot-every phải là số nguyên")
 		return 1
-	if opt["--night"] != "1":
-		printerr("Phase 1 chỉ có --night 1")
+	if not opt["--night"] in ["1", "2", "3"]:
+		printerr("--night phải là 1, 2 hoặc 3")
 		return 1
+	var night := int(opt["--night"])
 	var ticks := int(opt["--ticks"])
 	var every := int(opt["--snapshot-every"])
 	if ticks < 0 or every <= 0:
@@ -43,7 +44,7 @@ static func run(args: PackedStringArray) -> int:
 		sc = _load(opt["--scenario"])
 		if sc is BadFormat or sc is int:
 			return _fail(sc)
-		var e := _check_scenario(sc)
+		var e := _check_scenario(sc, Sim.level(night).lanterns.size())
 		if e != "":
 			return _fail(BadFormat.new("scenario: " + e))
 	var frames := []
@@ -60,12 +61,13 @@ static func run(args: PackedStringArray) -> int:
 	if out == null:
 		printerr("không ghi được ", opt["--out"])
 		return 1
-	var sim := Sim.new(int(opt["--seed"]), Sim.load_tuning())
+	var sim := Sim.new(int(opt["--seed"]), Sim.load_tuning(), night)
 	sim.apply_scenario(sc)
-	var cur := {"move": [0, 0], "cam_yaw_deg": 0.0, "jump": false, "interact": false, "pulse": false, "dash": false}
+	var cur := {"move": [0, 0], "cam_yaw_deg": 0.0, "jump": false, "interact": false, "pulse": false, "dash": false, "pause": false}
 	var fi := 0
 	var k := 0
 	out.store_line(JSON.stringify(sim.snapshot(0), "", false))
+	out.store_line(JSON.stringify({"type": "event", "tick": 0, "name": "night_start", "data": {"night": night}}, "", false))
 	while k < ticks and sim.state == "playing":
 		while fi < frames.size() and int(frames[fi]["tick"]) <= k:
 			for key in frames[fi]:
@@ -135,17 +137,17 @@ static func _check_inputs(d: Dictionary) -> String:
 	return ""
 
 
-static func _check_scenario(d: Dictionary) -> String:
+static func _check_scenario(d: Dictionary, n_lanterns: int) -> String:
 	if d.has("player"):
 		var p = d["player"]
 		if typeof(p) != TYPE_DICTIONARY:
 			return "player phải là object"
 		if p.has("pos") and not _vec(p["pos"], 3):
 			return "player.pos phải là [x,y,z]"
-		for k in ["carried", "flames"]:
+		for k in ["carried", "flames", "invuln_ticks", "dash_cd_ticks", "pulse_cd_ticks", "charm_ticks"]:
 			if p.has(k) and not (_int(p[k]) and p[k] >= 0):
 				return "player.%s phải là số nguyên >= 0" % k
-	for k in ["random_motes", "random_shades"]:
+	for k in ["random_motes", "random_shades", "random_drifters", "wind_enabled"]:
 		if d.has(k) and typeof(d[k]) != TYPE_BOOL:
 			return k + " phải là boolean"
 	if d.has("motes") and not (typeof(d["motes"]) == TYPE_ARRAY and d["motes"].all(func(m): return _vec(m, 3))):
@@ -156,12 +158,36 @@ static func _check_scenario(d: Dictionary) -> String:
 		for s in d["shades"]:
 			if typeof(s) != TYPE_DICTIONARY or not _vec(s.get("pos"), 3) or (s.has("id") and typeof(s["id"]) != TYPE_STRING):
 				return "shade cần pos [x,y,z], id là chuỗi"
+			if s.has("state") and not (s["state"] in ["spawning", "wander", "chase", "recoil", "stunned"]):
+				return "shade.state không hợp lệ"
+			if s.has("state_ticks_left") and not (_int(s["state_ticks_left"]) and s["state_ticks_left"] >= 0):
+				return "shade.state_ticks_left phải là số nguyên >= 0"
+	if d.has("drifters"):
+		if typeof(d["drifters"]) != TYPE_ARRAY:
+			return "drifters phải là mảng"
+		for s in d["drifters"]:
+			if typeof(s) != TYPE_DICTIONARY or not _vec(s.get("pos"), 3) or (s.has("id") and typeof(s["id"]) != TYPE_STRING):
+				return "drifter cần pos [x,y,z], id là chuỗi"
+			if s.has("state") and not (s["state"] in ["idle", "chase", "flee"]):
+				return "drifter.state không hợp lệ"
+			for k in ["stolen", "state_ticks_left"]:
+				if s.has(k) and not (_int(s[k]) and s[k] >= 0):
+					return "drifter.%s phải là số nguyên >= 0" % k
+	if d.has("charms"):
+		if typeof(d["charms"]) != TYPE_ARRAY:
+			return "charms phải là mảng"
+		for c in d["charms"]:
+			if typeof(c) != TYPE_DICTIONARY or (c.has("id") and typeof(c["id"]) != TYPE_STRING) 					or (c.has("available") and typeof(c["available"]) != TYPE_BOOL) or (c.has("pos") and not _vec(c["pos"], 3)) 					or (c.has("respawn_ticks") and not (_int(c["respawn_ticks"]) and c["respawn_ticks"] >= 0)):
+				return "charm cần id chuỗi, available boolean, pos [x,y,z], respawn_ticks >= 0"
 	if d.has("lanterns"):
 		if typeof(d["lanterns"]) != TYPE_ARRAY:
 			return "lanterns phải là mảng"
 		for l in d["lanterns"]:
-			if typeof(l) != TYPE_DICTIONARY or not (l.get("id") in ["L1", "L2", "L3", "L4", "L5"]):
-				return "lantern cần id L1..L5"
+			var ids := []
+			for i in n_lanterns:
+				ids.append("L%d" % (i + 1))
+			if typeof(l) != TYPE_DICTIONARY or not (l.get("id") in ids):
+				return "lantern cần id L1..L%d" % n_lanterns
 			if l.has("pos") and not _vec(l["pos"], 3):
 				return "lantern.pos phải là [x,y,z]"
 			if l.has("lit") and typeof(l["lit"]) != TYPE_BOOL:
