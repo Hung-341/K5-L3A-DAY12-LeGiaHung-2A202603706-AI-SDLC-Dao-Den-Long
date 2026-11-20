@@ -1,6 +1,6 @@
 # Bằng chứng Phase 1
 
-Chạy lại: `python3 tests/run_tests.py` → [run_tests.txt](run_tests.txt) (29/29 đạt ở tag `phase-1`).
+Lệnh chạy lại: `python3 tests/run_tests.py` → [run_tests.txt](run_tests.txt) (đạt 29/29 ở tag `phase-1`).
 
 | Yêu cầu (PRD-0 / Contract v1.0) | Cách kiểm chứng | Bằng chứng | Kết quả |
 |---|---|---|---|
@@ -10,8 +10,8 @@ Chạy lại: `python3 tests/run_tests.py` → [run_tests.txt](run_tests.txt) (2
 | Đom đóm rải rác, nhặt tự động ≤ r, sức chứa | `test_pickup`, `test_capacity`, `test_default_level` | run_tests.txt | Đạt |
 | Nạp ánh sáng thắp đèn | `test_deposit_lit`, `test_partial`, `test_deposit_out_of_range` | run_tests.txt | Đạt |
 | Bóng Mực xuất hiện và đuổi | `test_spawn`, `test_no_flames` | run_tests.txt | Đạt |
-| Tỏa sáng xua Bóng Mực, tốn ánh sáng, hồi chiêu | `test_pulse`, `test_pulse_xz_edge`, `test_pulse_cd`, `test_pulse_poor` | run_tests.txt | Đạt |
-| Bị chạm mất máu, bất tử, rơi đom đóm | `test_hit` | run_tests.txt | Đạt |
+| Tỏa sáng xua Bóng Mực, tốn ánh sáng, có hồi chiêu | `test_pulse`, `test_pulse_xz_edge`, `test_pulse_cd`, `test_pulse_poor` | run_tests.txt | Đạt |
+| Bị chạm thì mất máu, bất tử tạm thời, rơi đom đóm | `test_hit` | run_tests.txt | Đạt |
 | Bóng Mực sợ đèn (vùng an toàn) | `test_safe` | run_tests.txt | Đạt |
 | Thắng / thua (`all_lit`, `dawn`, `no_flames`), điểm | `test_win`, `test_dawn`, `test_no_flames` | run_tests.txt | Đạt |
 | HUD | GUI | [gui-hud.png](gui-hud.png) | Đạt |
@@ -30,4 +30,4 @@ real 0m1.458s, exit=0
 $ (chạy lại ra full2.jsonl) && cmp full.jsonl full2.jsonl → DETERMINISTIC-DOCKER
 $ ./headless.sh ... --inputs bad.json (tick giảm) → "inputs: tick phải tăng nghiêm ngặt và >= 0", exit=2
 ```
-Máy: Windows 11, Docker Desktop, image `ubuntu:24.04` + Godot 4.7.2 Linux.
+Máy chạy: Windows 11, Docker Desktop, image `ubuntu:24.04` + Godot 4.7.2 Linux.
