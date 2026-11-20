@@ -30,6 +30,7 @@ const RECOIL_M := 2.0
 const SAFE_PUSH_TICKS := 30
 const PULSE_H := 0.8
 const DY_MAX := 1.5
+const EPS := 1e-6  # bù sai số float cộng dồn khi so "trong bán kính r" (<= r)
 const RESPAWN_WAIT := 60
 const LANTERN_POS := [Vector3(0, 0, 25), Vector3(23.8, 0, 7.7), Vector3(14.7, 0, -20.2), Vector3(-14.7, 0, -20.2), Vector3(-23.8, 0, 7.7)]
 
@@ -207,7 +208,7 @@ func step(inp: Dictionary) -> void:
 		for m in motes.duplicate():
 			if carried >= int(T["carry_capacity"]):
 				break
-			if m["born"] < steps and xz(p_pos, m["pos"]) <= float(T["pickup_radius"]) and absf(p_pos.y - m["pos"].y) <= DY_MAX:
+			if m["born"] < steps and xz(p_pos, m["pos"]) <= float(T["pickup_radius"]) + EPS and absf(p_pos.y - m["pos"].y) <= DY_MAX:
 				motes.erase(m)
 				carried += 1
 				_emit("mote_picked", {"carried": carried})
@@ -235,7 +236,7 @@ func step(inp: Dictionary) -> void:
 	if active and invuln == 0:
 		for s in shades:
 			if s["state"] in ["wander", "chase"] and _in_safe(s["pos"]).is_empty() \
-					and xz(p_pos, s["pos"]) <= float(T["shade_hit_radius"]) and absf(p_pos.y - s["pos"].y) <= DY_MAX:
+					and xz(p_pos, s["pos"]) <= float(T["shade_hit_radius"]) + EPS and absf(p_pos.y - s["pos"].y) <= DY_MAX:
 				_hit(s)
 				break
 	# 10. sinh
@@ -303,17 +304,18 @@ func _interact() -> void:
 		if L["lit"]:
 			continue
 		var d := xz(p_pos, L["pos"])
-		if d <= float(T["interact_radius"]) and d < bd:
+		if d <= float(T["interact_radius"]) + EPS and d < bd:
 			best = L
 			bd = d
 	if best.is_empty() or carried == 0:
 		return
 	var cost := int(T["lantern_cost"])
-	var amt: int = min(carried, cost - int(best["deposited"]))
-	best["deposited"] += amt
-	carried -= amt
-	score += amt * int(S["per_mote"])
-	_emit("deposit", {"lantern_id": best["id"], "amount": amt, "deposited": best["deposited"]})
+	var amt: int = clampi(cost - int(best["deposited"]), 0, carried)
+	if amt > 0:
+		best["deposited"] += amt
+		carried -= amt
+		score += amt * int(S["per_mote"])
+		_emit("deposit", {"lantern_id": best["id"], "amount": amt, "deposited": best["deposited"]})
 	if best["deposited"] >= cost:
 		best["lit"] = true
 		score += int(S["per_lantern"])
@@ -326,10 +328,10 @@ func _pulse() -> void:
 		return
 	carried -= cost
 	pulse_cd = int(round(float(T["pulse_cooldown_s"]) * 60.0))
-	var c := p_pos + Vector3(0, PULSE_H, 0)
+	# v1.0: đo XZ (+ chênh cao như khi chạm). Ticket-02 đổi sang 3D từ tâm chân+0.8 → làm ở Phase 2.
 	var ids := []
 	for s in shades:
-		if c.distance_to(s["pos"]) <= float(T["pulse_radius"]):
+		if xz(p_pos, s["pos"]) <= float(T["pulse_radius"]) + EPS and absf(p_pos.y - s["pos"].y) <= DY_MAX:
 			var d: Vector3 = s["pos"] - p_pos
 			d.y = 0
 			s["dir"] = d.normalized() if d.length() > 0.0001 else Vector3.RIGHT

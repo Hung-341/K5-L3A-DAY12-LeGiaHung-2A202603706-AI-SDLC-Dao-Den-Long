@@ -14,6 +14,9 @@
 | Trạng thái Bóng Mực mới sinh | `spawning` 30 tick, vô hại | Báo trước cho người chơi; tên trạng thái theo v1.1 |
 | `random_motes: false` mà không có `motes` | Không có đom đóm nào | "chỉ có những con được liệt kê" |
 | `move` có thành phần ngoài [−1, 1] | Sai định dạng, thoát mã 2 | Contract ghi "mỗi thành phần trong [−1, 1]" |
+| Khoảng cách Tỏa Sáng | Đo theo **XZ** (≤ r) kèm chênh cao ≤ 1.5 m | Contract v1.0 mục B: mọi khoảng cách tuning đo theo XZ. Ticket-02 đổi sang 3D, sẽ đổi ở Phase 2 |
+| Tỏa Sáng trúng Bóng Mực đang `spawning` | Bị choáng và được cộng điểm | Ticket-02: "mỗi con mỗi lần, kể cả con đang choáng" |
+| Event `dash` | Có ghi ra output | Contract cho phép `dash` "nếu có"; tên event theo v1.1 |
 
 ## Quyết định kiến trúc
 - Toàn bộ luật nằm trong `Sim.step()` theo thứ tự 12 bước. Node Godot chỉ để vẽ. Lý do: output phải giống hệt từng byte và Phase 2 có địa hình nhiều tầng.
@@ -31,6 +34,8 @@
 - Test `pickup` vẫn dùng bán kính cũ 1.2 m sau khi đổi sang số chuẩn. Bộ test bắt được. Đã sửa test thành `T["pickup_radius"]` để không còn gắn cứng.
 - Một biến trong GUI không suy được kiểu (`focus`), nên lần chạy GUI đầu bị lỗi parse. Phát hiện bằng cách chạy chụp ảnh `DDL_SHOT`.
 - Lệnh `git mv README.md` chạy sau khi đã ghi README mới, khiến hai file bị đảo. Phát hiện ngay bằng `head` và đã khôi phục từ git.
+
+- Reviewer độc lập (Opus) tìm ra 1 lỗi Critical: Tỏa Sáng đo 3D, sai với contract v1.0 (XZ). Thêm 2 lỗi Important: scenario có `deposited` lớn hơn chi phí đèn khiến lượng nạp âm, và file output trong Docker thuộc root. Sau đó 1 lỗi Minor: sai số float làm chạm trễ 1 tick. Mỗi lỗi có test hồi quy đỏ trước, xanh sau (`test_pulse_xz_edge`, `test_deposit_overfull_scenario`, `test_chase_exact_tick`); bộ test 29/29.
 
 **Token:** ước tính khoảng 400–500k token cho Phase 1, phần lớn là đọc tài liệu và hai subagent kiểm tra (mỗi agent khoảng 115k). Đã tiết kiệm bằng cách gom các bước sửa test vào một script, chạy test theo tên thay vì cả bộ, và đọc ảnh bằng chứng thay vì mô tả dài.
 

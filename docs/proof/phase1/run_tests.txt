@@ -14,6 +14,9 @@ PASS test_deposit_lit
 PASS test_partial
 PASS test_deposit_out_of_range
 PASS test_pulse
+PASS test_pulse_xz_edge
+PASS test_deposit_overfull_scenario
+PASS test_chase_exact_tick
 PASS test_pulse_cd
 PASS test_pulse_poor
 PASS test_hit
@@ -24,4 +27,4 @@ PASS test_win
 PASS test_dawn
 PASS test_spawn
 PASS test_default_level
-26/26 passed
+29/29 passed

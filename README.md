@@ -41,7 +41,7 @@ Toàn bộ số liệu nằm trong [game.contract.json](game.contract.json). T�
 ## Test và headless
 
 ```bash
-python3 tests/run_tests.py              # 26 scenario headless, gồm kiểm tra tất định và mã thoát 2
+python3 tests/run_tests.py              # 29 scenario headless, gồm kiểm tra tất định và mã thoát 2
 ```
 
 - Contract: [game.contract.json](game.contract.json) (v1.0). Output JSONL gồm snapshot, event, end theo Test Contract.
@@ -52,7 +52,7 @@ python3 tests/run_tests.py              # 26 scenario headless, gồm kiểm tra
 
 - **Phong cách "đảo đồ chơi trong mơ":** nhân vật chibi đầu to, camera nhìn chéo từ trên cao có tilt-shift (DOF gần/xa), hoa hồng tím rải khắp đảo, trăng lưỡi liềm hồng. Màu chính theo bảng chuẩn; hồng tím chỉ dùng cho chi tiết trang trí.
 - Bóng Mực có mắt tím phát sáng, răng nanh trắng, phình xẹp như đang thở; lúc vừa sinh ra thì nhỏ lại (trạng thái `spawning`, vô hại 0.5 s) để người chơi kịp thấy.
-- Toàn bộ phần thêm chỉ nằm trong `scripts/view.gd`, không đụng `sim.gd`, nên output headless không đổi. Bằng chứng: 26/26 test vẫn đạt ([run_tests.txt](docs/proof/phase1/run_tests.txt)).
+- Toàn bộ phần thêm chỉ nằm trong `scripts/view.gd`, không đụng `sim.gd`, nên output headless không đổi. Bằng chứng: 29/29 test vẫn đạt ([run_tests.txt](docs/proof/phase1/run_tests.txt)).
 
 ## Harness AI
 

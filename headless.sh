@@ -13,6 +13,7 @@ while [ $# -gt 0 ]; do
       [ $# -ge 2 ] || { echo "thiếu giá trị cho $1" >&2; exit 1; }
       p="$(abspath "$2")"
       d="$(dirname "$p")"
+      if [ "$1" = "--out" ]; then mkdir -p "$d"; fi
       case "$seen" in *" $d "*) ;; *) mounts+=(-v "$d:$d"); seen="$seen$d " ;; esac
       args+=("$1" "$p"); shift 2 ;;
     *) args+=("$1"); shift ;;
@@ -22,5 +23,6 @@ G="${GODOT:-$(command -v godot || true)}"
 if [ -n "$G" ] && "$G" --version 2>/dev/null | grep -q '^4\.'; then
   exec "$G" --headless --path "$ROOT" -- --headless-run ${args[@]+"${args[@]}"}
 fi
-exec docker run --rm ${mounts[@]+"${mounts[@]}"} dao-den-long \
+# chạy bằng uid/gid của người gọi để file output không thuộc root
+exec docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp ${mounts[@]+"${mounts[@]}"} dao-den-long \
   godot --headless --path /w -- --headless-run ${args[@]+"${args[@]}"}

@@ -177,6 +177,30 @@ def test_pulse():
     assert end(L)["score"] == T["score"]["per_stun"]
 
 
+def test_pulse_xz_edge():
+    # Contract v1.0: khoảng cách tuning đo theo XZ, "trong r" là <= r; bóng có thể đặt ở y=0
+    r = T["pulse_radius"]
+    c, L, _ = run(ticks=3, scenario=sc(player={"carried": T["pulse_cost"]},
+                                       shades=[{"id": "S1", "pos": [r, 0, 0]}, {"id": "S2", "pos": [0, 1, -r]}]),
+                  inputs={"frames": [{"tick": 0, "pulse": True}]})
+    assert events(L, "pulse")[0]["data"] == {"stunned_ids": ["S1", "S2"]}, events(L, "pulse")
+
+
+def test_deposit_overfull_scenario():
+    cost = T["lantern_cost"]
+    c, L, _ = run(ticks=3, scenario=sc(player={"pos": [0, 0, 23], "carried": 5},
+                                       lanterns=[{"id": "L1", "deposited": cost + 2}]), inputs=_interact())
+    assert all(e["data"]["amount"] > 0 for e in events(L, "deposit")), events(L, "deposit")
+    assert end(L)["score"] >= 0 and snap(L, 0)["player"]["carried"] == 5
+
+
+def test_chase_exact_tick():
+    # bóng cách 3 m, tốc độ 4 m/s, chạm ở 1 m: cần đúng (3-1)/4*60 = 30 tick
+    c, L, _ = run(ticks=40, scenario=sc(shades=[{"id": "S1", "pos": [3, 1, 0]}]))
+    h = events(L, "player_hit")
+    assert h and h[0]["tick"] == int((3 - T["shade_hit_radius"]) / T["shade_speed"] * 60), h
+
+
 def test_pulse_cd():
     cd = int(T["pulse_cooldown_s"] * 60)
     fr = [{"tick": 0, "pulse": True}, {"tick": 1, "pulse": False}, {"tick": 10, "pulse": True},
