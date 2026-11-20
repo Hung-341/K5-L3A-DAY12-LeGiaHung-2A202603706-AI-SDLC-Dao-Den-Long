@@ -27,6 +27,9 @@ var yaw := 0.0
 var sens := 0.25
 var volume := 0.8
 var colorblind := false  # "Bảng màu dễ phân biệt" (Ticket-03 mục 6)
+var skin := 0  # phụ kiện; áo #E8E2D0, khăn #C8102E, nón lá + đèn lồng giữ nguyên theo PRD/bảng màu
+const SKINS := ["Cổ điển", "Hoa cài nón", "Đèn cá chép", "Ba lô lá"]
+var orbit: Array = []   # đom đóm bay quanh Mây = số đang mang (bổ sung cho thanh HUD bắt buộc)
 var paused := false
 var world: Node3D
 var cam: Camera3D
@@ -94,6 +97,7 @@ func _load_settings() -> void:
 		volume = cf.get_value("audio", "volume", volume)
 		sens = cf.get_value("input", "mouse_sensitivity", sens)
 		colorblind = cf.get_value("display", "colorblind", colorblind)
+		skin = cf.get_value("player", "skin", skin)
 
 
 func _save_settings() -> void:
@@ -101,6 +105,7 @@ func _save_settings() -> void:
 	cf.set_value("audio", "volume", volume)
 	cf.set_value("input", "mouse_sensitivity", sens)
 	cf.set_value("display", "colorblind", colorblind)
+	cf.set_value("player", "skin", skin)
 	cf.save("user://settings.cfg")
 
 
@@ -139,8 +144,24 @@ func _show_menu() -> void:
 	_title("Đảo Đèn Lồng", 52)
 	_title("Giữ ba hòn đảo sáng tới bình minh", 22)
 	_button("Bắt đầu", func(): _start_night(1))
+	_button("Chọn Đêm", _show_select)
+	_button("Trang phục: " + SKINS[skin], func():
+		skin = (skin + 1) % SKINS.size()
+		_save_settings()
+		_show_menu())
 	_button("Cài đặt", _show_settings)
 	_button("Thoát", func(): get_tree().quit())
+
+
+## Chọn Đêm: thêm vào menu, không đổi chuỗi bắt buộc (vẫn giới thiệu → chơi → kết quả → Đêm kế).
+func _show_select() -> void:
+	_clear_panel()
+	_title("Chọn Đêm", 40)
+	for n in [1, 2, 3]:
+		_button("Đêm %d · %s" % [n, Sim.level(n).name], func():
+			total = 0
+			_start_night(n))
+	_button("Quay lại", _show_menu)
 
 
 func _show_settings() -> void:
@@ -297,6 +318,7 @@ func _load_night(n: int) -> void:
 	yaw = 0.0
 	last_sec = -1
 	trails.clear()
+	orbit.clear()
 	if creative:
 		creative.reset(sim)
 	env = Environment.new()
@@ -439,7 +461,21 @@ func _make_player() -> Node3D:
 		_mesh(_sphere(0.06), _mat(Color("#2A1E2E")), Vector3(x, 1.36, 0.43), p)
 	_mesh(_cyl(0.0, 0.95, 0.45), _mat(C.sand), Vector3(0, 1.85, 0), p)
 	_mesh(_cyl(0.005, 0.005, 0.45), _mat(C.wood), Vector3(0.7, 1.45, 0.3), p)
-	var lan := _mesh(_sphere(0.12), _mat(C.lamp_on, 3.0), Vector3(0.7, 1.15, 0.3), p)
+	var lan: MeshInstance3D
+	match skin:
+		2:  # đèn cá chép: thân dài màu cam, đuôi vàng
+			lan = _mesh(_sphere(0.12), _mat(C.lamp_on, 3.0), Vector3(0.7, 1.15, 0.3), p)
+			lan.scale = Vector3(0.9, 0.9, 1.8)
+			_mesh(_cyl(0.0, 0.1, 0.18), _mat(C.gold, 2.0), Vector3(0.7, 1.15, 0.08), p).rotation_degrees.x = -90
+		_:
+			lan = _mesh(_sphere(0.12), _mat(C.lamp_on, 3.0), Vector3(0.7, 1.15, 0.3), p)
+	if skin == 1:  # vòng hoa hồng tím cài vành nón
+		for k in 8:
+			var a := k * TAU / 8
+			_mesh(_sphere(0.08), _mat(C.pink if k % 2 == 0 else C.lilac), Vector3(cos(a) * 0.62, 1.72, sin(a) * 0.62), p)
+	if skin == 3:  # ba lô lá
+		var bag := _mesh(_sphere(0.28), _mat(C.grass.lightened(0.25)), Vector3(0, 0.6, -0.38), p)
+		bag.scale = Vector3(1.0, 1.2, 0.6)
 	var l := OmniLight3D.new()
 	l.light_color = C.lamp_on
 	l.omni_range = 4.5
@@ -766,8 +802,19 @@ func _process(_dt: float) -> void:  # _dt dùng cho làm mượt camera/xoay
 	if mode != "dawn":
 		env.ambient_light_energy = 0.15 + 0.55 * lit / sim.lanterns.size()
 	creative.render(t)
+	_update_orbit(t, ppos)
 	_update_trails(_dt)
 	_update_hud(t)
+
+
+func _update_orbit(t: float, center: Vector3) -> void:
+	while orbit.size() < sim.carried:
+		orbit.append(_mesh(_sphere(0.09), _mat(C.mote, 4.0)))
+	while orbit.size() > sim.carried:
+		orbit.pop_back().queue_free()
+	for i in orbit.size():
+		var a: float = t * 1.6 + i * TAU / maxf(1.0, orbit.size())
+		orbit[i].position = center + Vector3(cos(a) * 0.95, 1.1 + 0.35 * sin(t * 2.3 + i), sin(a) * 0.95)
 
 
 ## Vệt mực sau Bóng Mực đang đuổi: chỉ là hình, tốc độ thật vẫn theo luật.

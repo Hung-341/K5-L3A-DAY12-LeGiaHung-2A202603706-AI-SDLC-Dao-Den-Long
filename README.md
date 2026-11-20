@@ -63,6 +63,9 @@ Phần thêm chia hai loại. Cả hai đều không đổi luật hay số li�
 - **Đảo "đồ chơi trong mơ":** nhân vật chibi, tilt-shift; cây, đá, cỏ, hoa (có cuống và cánh, không phát sáng để không nhầm với đom đóm); hàng rào gỗ đánh dấu vùng an toàn 6 m. Trang trí **không có va chạm** và được đặt tránh đèn, điểm đom đóm, bục nhảy, để không đổi bản đồ chuẩn.
 - **Cảm giác điều khiển:** nội suy hình giữa các tick, camera góc nhìn thứ ba xoay tự do (chuột ngang/dọc, cuộn để zoom, không xuyên đất), nhớ phím 0.1 s. Bóng Mực để lại vệt mực khi đuổi; tốc độ thật vẫn là 4.0 m/s.
 - Âm thanh tổng hợp bằng code (`scripts/sfx.gd`), không dùng file âm thanh ngoài.
+- **Chọn Đêm** trong menu: chơi thẳng một Đêm bất kỳ, chuỗi giới thiệu → chơi → kết quả → Đêm kế giữ nguyên.
+- **Trang phục:** chọn phụ kiện (hoa cài nón, đèn cá chép, ba lô lá), được lưu lại. Áo `#E8E2D0`, khăn `#C8102E`, nón lá và đèn lồng nhỏ giữ đúng PRD và bảng màu.
+- **Đom đóm bay quanh Mây:** mang bao nhiêu thì có bấy nhiêu con bay quanh người. Thanh 10 ô và "đang mang / sức chứa" trên HUD vẫn giữ vì là yêu cầu bắt buộc.
 
 **B. Lựa chọn thiết kế trong khuôn luật** (trong `sim.gd`, có test):
 - Đom đóm sinh ở **điểm trống xa Mây nhất**: ticket chỉ nói "một điểm trống". Xem `test_mote_spawn_farthest_free_point`.
