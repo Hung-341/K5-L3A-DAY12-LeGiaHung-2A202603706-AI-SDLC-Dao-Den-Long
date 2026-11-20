@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && mkdir -p out && python tests/run_tests.py > out/last-tests.txt 2>&1 || { tail -5 out/last-tests.txt >&2; echo 'Test headless đang đỏ: sửa trước khi kết thúc (python tests/run_tests.py)' >&2; exit 2; }",
+            "timeout": 300
+          }
+        ]
+      }
+    ]
+  }
+}

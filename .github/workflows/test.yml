@@ -1,0 +1,20 @@
+name: headless-tests
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cài Godot 4.7.2
+        run: |
+          wget -q https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip
+          unzip -q Godot_v4.7.2-stable_linux.x86_64.zip
+          echo "GODOT=$PWD/Godot_v4.7.2-stable_linux.x86_64" >> $GITHUB_ENV
+      - run: $GODOT --headless --path . --import || true
+      - run: python3 tests/run_tests.py
+      - name: Headless qua Docker như máy chấm
+        run: |
+          docker build -t dao-den-long .
+          mkdir -p /tmp/ddl
+          env -u GODOT PATH=/usr/bin:/bin ./headless.sh --seed 1 --night 1 --ticks 600 --out /tmp/ddl/a.jsonl
+          tail -1 /tmp/ddl/a.jsonl
