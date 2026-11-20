@@ -1,50 +1,199 @@
 extends Node3D
-## Bản có giao diện: đọc trạng thái Sim để vẽ. Không chứa luật chơi.
-## Điều khiển: WASD đi, chuột xoay camera, Space nhảy, Shift lướt, E nạp đèn, F/chuột trái tỏa sáng, R chơi lại, Esc nhả chuột.
+## Bản có giao diện: chuỗi 3 Đêm, tạm dừng, cài đặt, âm thanh, HUD. Chỉ đọc trạng thái Sim để vẽ.
+## Điều khiển: WASD đi, chuột xoay camera, Space nhảy, Shift lướt, E nạp đèn, F/chuột trái tỏa sáng, Esc/P tạm dừng.
 
 const Sim = preload("res://scripts/sim.gd")
+const Sfx = preload("res://scripts/sfx.gd")
 const C := {
 	"sky": Color("#0E1430"), "fog": Color("#1B2350"), "grass": Color("#2F5D50"), "sand": Color("#C9B48A"),
 	"wood": Color("#6B4A2F"), "sea": Color("#12384A"), "lamp_on": Color("#FFB347"), "lamp_core": Color("#FFE9B0"),
 	"lamp_off": Color("#5B5F6E"), "mote": Color("#FFF6C2"), "mote_halo": Color("#FFE58A"), "shade": Color("#120A1A"),
 	"shade_rim": Color("#7A3CFF"), "shade_stun": Color("#3A3450"), "coat": Color("#E8E2D0"), "scarf": Color("#C8102E"),
-	"gold": Color("#F2C14E"), "danger": Color("#FF5A5F"), "ui": Color("#F5F1E6"),
-	# điểm nhấn "giấc mơ" (ngoài bảng màu bắt buộc)
-	"pink": Color("#F4A6D7"), "lilac": Color("#B48CFF"), "skin": Color("#F6D7B8"),
+	"gold": Color("#F2C14E"), "drifter": Color("#8FA3B8"), "danger": Color("#FF5A5F"), "ui": Color("#F5F1E6"),
+	"pink": Color("#F4A6D7"), "lilac": Color("#B48CFF"), "skin": Color("#F6D7B8"),  # điểm nhấn "giấc mơ", ngoài bảng bắt buộc
+}
+const INTRO := {
+	1: "Ông Đăng: \"Đêm đầu tiên, sương đen mới phủ Đảo Bến. Gom đom đóm, thắp lại năm ngọn đèn nhé, Mây.\"",
+	2: "Ông Đăng: \"Đảo Cau có hai nửa, nối bằng cây cầu tre. Bục nhảy sẽ đưa con qua biển mây. Cẩn thận Gió Lạc!\"",
+	3: "Ông Đăng: \"Đảo Chuông cao ba tầng, gió thổi mạnh. Ngọn đèn cuối nằm cạnh tháp chuông. Trời sắp sáng rồi.\"",
 }
 
 var sim
+var mode := "menu"   # menu | intro | play | result | dawn
+var night := 1
+var total := 0
 var yaw := 0.0
+var sens := 0.25
+var volume := 0.8
+var paused := false
+var world: Node3D
 var cam: Camera3D
 var env: Environment
 var player: Node3D
 var mote_nodes := {}
 var shade_nodes := {}
+var drifter_nodes := {}
+var charm_nodes := {}
 var lantern_nodes := {}
-var hud: Label
-var hud_mid: Label
-var hud_right: Label
-var hud_bottom: Label
-var banner: Label
+var ui: CanvasLayer
+var hud: Control
+var lbl := {}
+var cells := []
+var arrow: Polygon2D
+var panel: VBoxContainer
+var sfx: Sfx
+var last_sec := -1
+var mats := {}
 
 
 func _ready() -> void:
-	_build_world()
+	_load_settings()
+	sfx = Sfx.new()
+	add_child(sfx)
+	sfx.set_volume(volume)
+	sfx.music()
+	ui = CanvasLayer.new()
+	add_child(ui)
 	_build_hud()
-	_new_game()
+	panel = VBoxContainer.new()
+	panel.alignment = BoxContainer.ALIGNMENT_CENTER
+	panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	ui.add_child(panel)
+	_load_night(int(OS.get_environment("DDL_NIGHT")) if OS.get_environment("DDL_NIGHT") != "" else 1)
+	_show_menu()
+
+
+# ---------------- cài đặt ----------------
+func _load_settings() -> void:
+	var cf := ConfigFile.new()
+	if cf.load("user://settings.cfg") == OK:
+		volume = cf.get_value("audio", "volume", volume)
+		sens = cf.get_value("input", "mouse_sensitivity", sens)
+
+
+func _save_settings() -> void:
+	var cf := ConfigFile.new()
+	cf.set_value("audio", "volume", volume)
+	cf.set_value("input", "mouse_sensitivity", sens)
+	cf.save("user://settings.cfg")
+
+
+# ---------------- màn hình menu ----------------
+func _clear_panel() -> void:
+	for c in panel.get_children():
+		c.queue_free()
+	panel.visible = true
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+
+func _title(t: String, size := 34) -> void:
+	var l := _label(panel, t, size)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.custom_minimum_size = Vector2(760, 0)
+	l.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+
+
+func _button(t: String, f: Callable) -> void:
+	var b := Button.new()
+	b.text = t
+	b.custom_minimum_size = Vector2(320, 48)
+	b.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	b.add_theme_font_size_override("font_size", 22)
+	b.pressed.connect(f)
+	panel.add_child(b)
+
+
+func _show_menu() -> void:
+	mode = "menu"
+	paused = false
+	total = 0
+	_clear_panel()
+	_title("Đảo Đèn Lồng", 52)
+	_title("Thắp lại ánh sáng cho ba hòn đảo trước bình minh", 22)
+	_button("Bắt đầu", func(): _start_night(1))
+	_button("Cài đặt", _show_settings)
+	_button("Thoát", func(): get_tree().quit())
+
+
+func _show_settings() -> void:
+	_clear_panel()
+	_title("Cài đặt", 40)
+	for item in [["Âm lượng", "volume", 0.0, 1.0], ["Độ nhạy chuột", "sens", 0.05, 1.0]]:
+		var l := _label(panel, item[0], 22)
+		l.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		var s := HSlider.new()
+		s.min_value = item[2]
+		s.max_value = item[3]
+		s.step = 0.01
+		s.value = get(item[1])
+		s.custom_minimum_size = Vector2(320, 32)
+		s.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		s.value_changed.connect(func(v):
+			set(item[1], v)
+			sfx.set_volume(volume)
+			_save_settings())
+		panel.add_child(s)
+	_button("Quay lại", func(): _show_pause() if paused else _show_menu())
+
+
+func _start_night(n: int) -> void:
+	_load_night(n)
+	mode = "intro"
+	paused = false
+	_clear_panel()
+	_title("Đêm %d · %s" % [n, Sim.level(n).name], 44)
+	_title(INTRO[n], 22)
+	_button("Vào đêm", _play)
+
+
+func _play() -> void:
+	mode = "play"
+	paused = false
+	panel.visible = false
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
-func _new_game() -> void:
-	sim = Sim.new(randi(), Sim.load_tuning())
-	for d in [mote_nodes, shade_nodes]:
-		for n in d.values():
-			n.queue_free()
-		d.clear()
-	banner.visible = false
+func _show_pause() -> void:
+	paused = true
+	_clear_panel()
+	_title("Tạm dừng", 40)
+	_button("Tiếp tục", _play)
+	_button("Chơi lại Đêm", func(): _start_night(night))
+	_button("Cài đặt", _show_settings)
+	_button("Về menu", _show_menu)
 
 
+func _show_result() -> void:
+	mode = "result"
+	_clear_panel()
+	if sim.state == "won":
+		total += sim.score
+		sfx.play("win")
+		if night == 3:
+			mode = "dawn"
+			env.background_color = Color("#F4B9A8")
+			env.ambient_light_energy = 1.2
+			_title("Bình Minh", 56)
+			_title("Ba hòn đảo đã sáng trở lại. Tổng điểm: %d" % total, 26)
+			_button("Về menu", _show_menu)
+		else:
+			_title("Đêm %d hoàn thành!" % night, 42)
+			_title("Điểm đêm này: %d · Tổng: %d" % [sim.score, total], 24)
+			_button("Đêm kế tiếp", func(): _start_night(night + 1))
+	else:
+		sfx.play("lose")
+		_title("Mây đã thua Đêm %d" % night, 42)
+		_title("Hết Ngọn Lửa." if sim.flames <= 0 else "Bình minh đã lên trước khi thắp đủ đèn.", 24)
+		_button("Chơi lại Đêm", func(): _start_night(night))
+		_button("Về menu", _show_menu)
+
+
+# ---------------- thế giới ----------------
 func _mat(c: Color, emit := 0.0, alpha := 1.0) -> StandardMaterial3D:
+	var key := "%s|%s|%s" % [c.to_html(), emit, alpha]
+	if mats.has(key):
+		return mats[key]
 	var m := StandardMaterial3D.new()
 	m.albedo_color = Color(c, alpha)
 	m.roughness = 0.9
@@ -54,15 +203,16 @@ func _mat(c: Color, emit := 0.0, alpha := 1.0) -> StandardMaterial3D:
 		m.emission_enabled = true
 		m.emission = c
 		m.emission_energy_multiplier = emit
+	mats[key] = m
 	return m
 
 
-func _mesh(mesh: Mesh, mat: Material, pos := Vector3.ZERO, parent: Node = self) -> MeshInstance3D:
+func _mesh(mesh: Mesh, mat: Material, pos := Vector3.ZERO, parent: Node = null) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh
 	mi.material_override = mat
 	mi.position = pos
-	parent.add_child(mi)
+	(parent if parent else world).add_child(mi)
 	return mi
 
 
@@ -81,12 +231,27 @@ func _cyl(top: float, bottom: float, h: float) -> CylinderMesh:
 	return c
 
 
-func _build_world() -> void:
+func _disc(center: Vector3, r: float, top: float, depth := 8.0) -> void:
+	_mesh(_cyl(r, r, 0.6), _mat(C.grass), center + Vector3(0, top - 0.3, 0))
+	_mesh(_cyl(r, r * 0.7, depth), _mat(C.sand), center + Vector3(0, top - 0.6 - depth / 2, 0))
+
+
+func _load_night(n: int) -> void:
+	night = n
+	if world:
+		world.queue_free()
+	for d in [mote_nodes, shade_nodes, drifter_nodes, charm_nodes, lantern_nodes]:
+		d.clear()
+	world = Node3D.new()
+	add_child(world)
+	sim = Sim.new(randi(), Sim.load_tuning(), n)
+	yaw = 0.0
+	last_sec = -1
 	env = Environment.new()
 	env.background_mode = Environment.BG_COLOR
 	env.background_color = C.sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.75, 0.7, 1.0)
+	env.ambient_light_color = Color(0.8, 0.75, 1.0)
 	env.ambient_light_energy = 0.15
 	env.fog_enabled = true
 	env.fog_light_color = C.fog
@@ -96,80 +261,124 @@ func _build_world() -> void:
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	var we := WorldEnvironment.new()
 	we.environment = env
-	add_child(we)
+	world.add_child(we)
 	var moon := DirectionalLight3D.new()
 	moon.light_color = Color(0.8, 0.75, 1.0)
-	moon.light_energy = 0.5
+	moon.light_energy = 0.45
 	moon.shadow_enabled = true
 	moon.rotation_degrees = Vector3(-55, 30, 0)
-	add_child(moon)
-	# đảo: mặt cỏ, vách cát, biển mây phía dưới
-	_mesh(_cyl(Sim.ISLAND_R, Sim.ISLAND_R, 0.6), _mat(C.grass), Vector3(0, -0.3, 0))
-	_mesh(_cyl(Sim.ISLAND_R, Sim.ISLAND_R * 0.7, 8.0), _mat(C.sand), Vector3(0, -4.6, 0))
+	world.add_child(moon)
 	var sea := PlaneMesh.new()
-	sea.size = Vector2(600, 600)
-	_mesh(sea, _mat(C.sea, 0.15), Vector3(0, -14, 0))
-	# trăng lưỡi liềm hồng: hai quả cầu chồng nhau
+	sea.size = Vector2(700, 700)
+	_mesh(sea, _mat(C.sea, 0.15), Vector3(35, -14, 0))
 	_mesh(_sphere(9.0), _mat(C.pink, 1.6), Vector3(-60, 55, 120))
 	_mesh(_sphere(8.6), _mat(C.sky), Vector3(-56, 57, 118))
-	# hoa hồng tím + đá rải rác (cố định theo seed riêng, chỉ để trang trí)
-	var r := RandomNumberGenerator.new()
-	r.seed = 7
-	for i in 140:
-		var p := Sim._polar(r.randf_range(4.0, 38.5), r.randf_range(0, 360))
-		var col: Color = C.pink if i % 2 == 0 else C.lilac
-		_mesh(_sphere(0.16), _mat(col, 0.6), p + Vector3(0, 0.15, 0))
-	for i in 18:
-		var p := Sim._polar(r.randf_range(8.0, 37.0), r.randf_range(0, 360))
-		var tree := Node3D.new()
-		tree.position = p
-		add_child(tree)
-		_mesh(_cyl(0.35, 0.45, 2.2), _mat(C.wood), Vector3(0, 1.1, 0), tree)
-		_mesh(_sphere(1.6), _mat(C.grass.lightened(0.15)), Vector3(0, 3.0, 0), tree)
-	# đèn lồng lớn
-	for L in sim_lanterns_default():
-		var n := Node3D.new()
-		n.position = L.pos
-		add_child(n)
-		_mesh(_cyl(0.3, 0.4, 3.0), _mat(C.wood), Vector3(0, 1.5, 0), n)
-		var lamp := _mesh(BoxMesh.new(), _mat(C.lamp_off), Vector3(0, 3.5, 0), n)
-		lamp.scale = Vector3(1.1, 1.3, 1.1)
-		_mesh(_cyl(0.0, 1.0, 0.7), _mat(C.wood), Vector3(0, 4.5, 0), n)
-		var light := OmniLight3D.new()
-		light.light_color = C.lamp_on
-		light.omni_range = 9.0
-		light.light_energy = 0.0
-		light.position = Vector3(0, 3.5, 0)
-		n.add_child(light)
-		var ring := _mesh(_cyl(6.0, 6.0, 0.05), _mat(C.lamp_on, 0.4, 0.12), Vector3(0, 0.05, 0), n)
-		ring.visible = false
-		lantern_nodes[L.id] = {"lamp": lamp, "light": light, "ring": ring}
+	_build_terrain(n)
+	for L in sim.lanterns:
+		_make_lantern(L)
 	player = _make_player()
 	cam = Camera3D.new()
 	cam.fov = 45
 	var ca := CameraAttributesPractical.new()
 	ca.dof_blur_far_enabled = true
-	ca.dof_blur_far_distance = 32.0
 	ca.dof_blur_far_transition = 18.0
 	ca.dof_blur_near_enabled = true
 	ca.dof_blur_near_distance = 8.0
 	ca.dof_blur_near_transition = 4.0
 	ca.dof_blur_amount = 0.12
 	cam.attributes = ca
-	add_child(cam)
+	world.add_child(cam)
 
 
-func sim_lanterns_default() -> Array:
-	var out := []
-	for i in Sim.LANTERN_POS.size():
-		out.append({"id": "L%d" % (i + 1), "pos": Sim.LANTERN_POS[i]})
-	return out
+func _build_terrain(n: int) -> void:
+	var r := RandomNumberGenerator.new()
+	r.seed = 7 + n
+	var deco: Array = []
+	match n:
+		1:
+			_disc(Vector3.ZERO, 40.0, 0.0)
+			deco = [Vector3.ZERO, 38.0]
+		2:
+			_disc(Vector3.ZERO, 28.0, 0.0)
+			_disc(Vector3(70, 0, 0), 28.0, 0.0)
+			var bridge := _mesh(BoxMesh.new(), _mat(C.wood), Vector3(35, -0.15, 0))
+			bridge.scale = Vector3(18, 0.3, 4)
+			deco = [Vector3.ZERO, 26.0, Vector3(70, 0, 0), 26.0]
+		3:
+			_disc(Vector3.ZERO, 45.0, 0.0)
+			# tầng 1: vành khăn r12–24, nửa z > 0, cao 3 m
+			var t1 := CSGCombiner3D.new()
+			world.add_child(t1)
+			var outer := CSGCylinder3D.new()
+			outer.radius = 24.0
+			outer.height = 3.0
+			outer.sides = 48
+			outer.material = _mat(C.grass)
+			t1.add_child(outer)
+			var inner := CSGCylinder3D.new()
+			inner.radius = 12.0
+			inner.height = 3.2
+			inner.sides = 32
+			inner.operation = CSGShape3D.OPERATION_SUBTRACTION
+			t1.add_child(inner)
+			var half := CSGBox3D.new()
+			half.size = Vector3(60, 3.4, 30)
+			half.position = Vector3(0, 0, -15)
+			half.operation = CSGShape3D.OPERATION_SUBTRACTION
+			t1.add_child(half)
+			t1.position = Vector3(0, 1.5, 0)
+			_mesh(_cyl(8, 8, 6), _mat(C.sand.darkened(0.1)), Vector3(0, 3, 0))
+			_mesh(_cyl(8, 8, 0.2), _mat(C.grass), Vector3(0, 6.0, 0))
+			_mesh(_cyl(2, 2, 8), _mat(C.wood), Vector3(0, 10, 0))
+			_mesh(_cyl(0.1, 2.6, 2.0), _mat(C.wood.darkened(0.3)), Vector3(0, 15, 0))
+			for a in [30.0, 150.0]:
+				var ramp := _mesh(BoxMesh.new(), _mat(C.sand), Sim._polar(27.0, a, 1.5))
+				ramp.rotation = Vector3(0, -deg_to_rad(a), 0)
+				ramp.rotate_object_local(Vector3.FORWARD, -atan2(3.0, 6.0))
+				ramp.scale = Vector3(6.7, 0.3, 3.0)
+			deco = [Vector3.ZERO, 44.0]
+	for pad in sim.LV.pads:
+		_mesh(_cyl(1, 1, 0.15), _mat(C.gold, 1.5), pad.pos + Vector3(0, 0.08, 0))
+	# hoa hồng tím, cây (trang trí)
+	for k in range(0, deco.size(), 2):
+		for i in 70:
+			var p: Vector3 = deco[k] + Sim._polar(r.randf_range(4.0, deco[k + 1]), r.randf_range(0, 360))
+			var g: float = sim.ground(p.x, p.z)
+			if g <= Sim.NO_GROUND:
+				continue
+			_mesh(_sphere(0.16), _mat(C.pink if i % 2 == 0 else C.lilac, 0.6), Vector3(p.x, g + 0.15, p.z))
+		for i in 8:
+			var p: Vector3 = deco[k] + Sim._polar(r.randf_range(9.0, deco[k + 1] - 3), r.randf_range(0, 360))
+			var g: float = sim.ground(p.x, p.z)
+			if g <= Sim.NO_GROUND or absf(g - sim.ground(p.x + 1.5, p.z)) > 0.01:
+				continue
+			_mesh(_cyl(0.35, 0.45, 2.2), _mat(C.wood), Vector3(p.x, g + 1.1, p.z))
+			_mesh(_sphere(1.6), _mat(C.grass.lightened(0.15)), Vector3(p.x, g + 3.0, p.z))
+
+
+func _make_lantern(L: Dictionary) -> void:
+	var n := Node3D.new()
+	n.position = L.pos
+	world.add_child(n)
+	_mesh(_cyl(0.3, 0.4, 3.0), _mat(C.wood), Vector3(0, 1.5, 0), n)
+	var lamp := _mesh(BoxMesh.new(), _mat(C.lamp_off), Vector3(0, 3.5, 0), n)
+	lamp.scale = Vector3(1.1, 1.3, 1.1)
+	_mesh(_cyl(0.0, 1.0, 0.7), _mat(C.wood), Vector3(0, 4.5, 0), n)
+	var light := OmniLight3D.new()
+	light.light_color = C.lamp_on
+	light.omni_range = 9.0
+	light.light_energy = 0.0
+	light.position = Vector3(0, 3.5, 0)
+	n.add_child(light)
+	var ring := _mesh(_cyl(6.0, 6.0, 0.05), _mat(C.lamp_on, 0.4, 0.12), Vector3(0, 0.05, 0), n)
+	ring.visible = false
+	lantern_nodes[L.id] = {"lamp": lamp, "light": light, "ring": ring, "lit": false, "dep": -1}
 
 
 ## Mây: chibi đầu to, áo kem, khăn đỏ, nón lá treo đèn lồng nhỏ.
 func _make_player() -> Node3D:
 	var p := Node3D.new()
-	add_child(p)
+	world.add_child(p)
 	_mesh(_cyl(0.32, 0.45, 0.8), _mat(C.coat), Vector3(0, 0.45, 0), p)
 	var scarf := TorusMesh.new()
 	scarf.inner_radius = 0.22
@@ -191,9 +400,8 @@ func _make_player() -> Node3D:
 
 func _make_shade() -> Node3D:
 	var s := Node3D.new()
-	add_child(s)
-	var rim := _mesh(_sphere(0.78), _mat(C.shade_rim, 1.2, 0.35), Vector3.ZERO, s)
-	rim.name = "rim"
+	world.add_child(s)
+	_mesh(_sphere(0.78), _mat(C.shade_rim, 1.2, 0.35), Vector3.ZERO, s)
 	var body := _mesh(_sphere(0.7), _mat(C.shade), Vector3.ZERO, s)
 	body.name = "body"
 	for x in [-0.22, 0.22]:
@@ -204,30 +412,31 @@ func _make_shade() -> Node3D:
 	return s
 
 
-func _build_hud() -> void:
-	var cl := CanvasLayer.new()
-	add_child(cl)
-	hud = _label(cl, Vector2(24, 18), HORIZONTAL_ALIGNMENT_LEFT)
-	hud_mid = _label(cl, Vector2(0, 18), HORIZONTAL_ALIGNMENT_CENTER)
-	hud_right = _label(cl, Vector2(0, 18), HORIZONTAL_ALIGNMENT_RIGHT)
-	hud_bottom = _label(cl, Vector2(0, 0), HORIZONTAL_ALIGNMENT_CENTER)
-	hud_bottom.position = Vector2(-300, -90)
-	hud_bottom.size = Vector2(600, 60)
-	hud_mid.position = Vector2(-150, 18)
-	hud_mid.size = Vector2(300, 40)
-	hud_right.position = Vector2(-324, 18)
-	hud_right.size = Vector2(300, 40)
-	banner = _label(cl, Vector2.ZERO, HORIZONTAL_ALIGNMENT_CENTER)
-	banner.position = Vector2(-300, -60)
-	banner.size = Vector2(600, 120)
-	banner.add_theme_font_size_override("font_size", 34)
+func _make_drifter() -> Node3D:
+	var d := Node3D.new()
+	world.add_child(d)
+	for i in 4:
+		var seg := _mesh(BoxMesh.new(), _mat(C.drifter, 0.6, 0.8), Vector3(0, 0, -i * 0.45), d)
+		seg.scale = Vector3(0.7 - i * 0.12, 0.06, 0.45)
+		seg.name = "s%d" % i
+	return d
 
 
-func _label(parent: Node, pos: Vector2, align: int) -> Label:
+func _make_charm() -> Node3D:
+	var c := Node3D.new()
+	world.add_child(c)
+	var b := _mesh(BoxMesh.new(), _mat(C.gold, 1.0), Vector3(0, 1.0, 0), c)
+	b.scale = Vector3(0.62, 0.86, 0.06)
+	var f := _mesh(BoxMesh.new(), _mat(C.scarf, 0.8), Vector3(0, 1.0, 0.01), c)
+	f.scale = Vector3(0.5, 0.74, 0.08)
+	return c
+
+
+# ---------------- HUD ----------------
+func _label(parent: Node, text := "", size := 22) -> Label:
 	var l := Label.new()
-	l.position = pos
-	l.horizontal_alignment = align
-	l.add_theme_font_size_override("font_size", 22)
+	l.text = text
+	l.add_theme_font_size_override("font_size", size)
 	l.add_theme_color_override("font_color", C.ui)
 	l.add_theme_color_override("font_outline_color", C.sky)
 	l.add_theme_constant_override("outline_size", 6)
@@ -235,15 +444,97 @@ func _label(parent: Node, pos: Vector2, align: int) -> Label:
 	return l
 
 
+func _build_hud() -> void:
+	hud = Control.new()
+	hud.set_anchors_preset(Control.PRESET_FULL_RECT)
+	hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ui.add_child(hud)
+	for k in ["flames", "clock", "right", "prompt", "dash", "pulse", "warn"]:
+		lbl[k] = _label(hud)
+	lbl.clock.add_theme_font_size_override("font_size", 30)
+	lbl.right.add_theme_color_override("font_color", C.gold)
+	lbl.flames.add_theme_color_override("font_color", C.lamp_on)
+	lbl.warn.add_theme_color_override("font_color", C.drifter)
+	for i in 10:
+		var c := ColorRect.new()
+		c.size = Vector2(26, 26)
+		c.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		hud.add_child(c)
+		cells.append(c)
+	arrow = Polygon2D.new()
+	arrow.polygon = PackedVector2Array([Vector2(18, 0), Vector2(-12, -12), Vector2(-6, 0), Vector2(-12, 12)])
+	arrow.color = C.lamp_on
+	hud.add_child(arrow)
+
+
+func _update_hud(t: float) -> void:
+	var vp := get_viewport().get_visible_rect().size
+	hud.visible = mode == "play" and not paused
+	var tl: float = max(sim.time_left, 0.0)
+	lbl.flames.text = "Ngọn Lửa  " + "♥ ".repeat(sim.flames) + "♡ ".repeat(max(0, 3 - sim.flames))
+	lbl.flames.position = Vector2(24, 18)
+	lbl.clock.text = "%02d:%02d" % [int(tl) / 60, int(tl) % 60]
+	lbl.clock.position = Vector2(vp.x / 2 - 40, 14)
+	lbl.clock.add_theme_color_override("font_color", C.danger if tl <= 30 else C.ui)
+	lbl.clock.visible = tl > 30 or int(t * 4) % 2 == 0
+	var lit: int = sim.lanterns.filter(func(L): return L.lit).size()
+	lbl.right.text = "Đèn %d/%d   Điểm %d" % [lit, sim.lanterns.size(), sim.score]
+	lbl.right.position = Vector2(vp.x - 300, 18)
+	for i in 10:
+		cells[i].position = Vector2(vp.x / 2 - 150 + i * 30, vp.y - 56)
+		cells[i].color = C.mote_halo if i < sim.carried else Color(C.ui, 0.18)
+	lbl.dash.text = "Lướt " + ("✓" if sim.dash_cd == 0 or sim.charm_t > 0 else "%.1fs" % (sim.dash_cd / 60.0))
+	lbl.pulse.text = "Tỏa Sáng " + ("✓" if sim.pulse_cd == 0 and sim.carried >= 3 else ("%.1fs" % (sim.pulse_cd / 60.0) if sim.pulse_cd > 0 else "cần 3"))
+	lbl.dash.position = Vector2(vp.x - 210, vp.y - 92)
+	lbl.pulse.position = Vector2(vp.x - 210, vp.y - 58)
+	var near := ""
+	var best = null
+	var bd := INF
+	for L in sim.lanterns:
+		if L.lit:
+			continue
+		var d := Sim.xz(sim.p_pos, L.pos)
+		if d <= 2.0:
+			near = "E — Nạp ánh sáng (%d/10)" % L.deposited
+		if d < bd:
+			bd = d
+			best = L
+	lbl.prompt.text = near
+	lbl.prompt.position = Vector2(vp.x / 2 - 140, vp.y - 110)
+	var warn := ""
+	if sim.wind_warning():
+		warn = "Lá bay… gió sắp nổi!"
+	elif sim.wind_on:
+		warn = "Gió mạnh!"
+	if sim.charm_t > 0:
+		warn += "   Bùa Gió %ds" % ceili(sim.charm_t / 60.0)
+	lbl.warn.text = warn
+	lbl.warn.position = Vector2(vp.x / 2 - 120, 56)
+	# mũi tên tới đèn chưa sáng gần nhất khi nó ở ngoài màn hình
+	arrow.visible = false
+	if best != null:
+		var wp: Vector3 = best.pos + Vector3(0, 3.5, 0)
+		var behind := cam.is_position_behind(wp)
+		var sp := cam.unproject_position(wp)
+		if behind or not Rect2(Vector2.ZERO, vp).has_point(sp):
+			var c := vp / 2
+			var dir := (sp - c) * (-1.0 if behind else 1.0)
+			arrow.visible = true
+			arrow.rotation = dir.angle()
+			arrow.position = c + dir.normalized() * (min(vp.x, vp.y) / 2 - 40)
+
+
+# ---------------- vòng lặp ----------------
 func _unhandled_input(e: InputEvent) -> void:
+	if mode != "play":
+		return
 	if e is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
-		yaw -= e.relative.x * 0.25
-	elif e is InputEventMouseButton and e.pressed:
-		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-	elif e is InputEventKey and e.pressed and e.keycode == KEY_ESCAPE:
-		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-	elif e is InputEventKey and e.pressed and e.keycode == KEY_R and sim.state != "playing":
-		_new_game()
+		yaw -= e.relative.x * sens
+	elif e is InputEventKey and e.pressed and not e.echo and e.keycode in [KEY_ESCAPE, KEY_P]:
+		if paused:
+			_play()
+		else:
+			_show_pause()
 
 
 func _key(k: Key) -> bool:
@@ -251,28 +542,56 @@ func _key(k: Key) -> bool:
 
 
 func _physics_process(_dt: float) -> void:
-	# camera phía sau nhìn hướng forward(θ) = (sinθ, 0, cosθ); phải màn hình là -x của contract
-	var mx := (1.0 if _key(KEY_A) else 0.0) - (1.0 if _key(KEY_D) else 0.0)
+	if mode != "play" or paused:
+		return
+	var mx := (1.0 if _key(KEY_A) else 0.0) - (1.0 if _key(KEY_D) else 0.0)  # phải màn hình là -x của contract
 	var mz := (1.0 if _key(KEY_W) else 0.0) - (1.0 if _key(KEY_S) else 0.0)
+	if OS.get_environment("DDL_AUTOPLAY") != "":
+		mz = 0.6
+		yaw += 0.3
 	sim.step({"move": [mx, mz], "cam_yaw_deg": yaw, "jump": _key(KEY_SPACE), "interact": _key(KEY_E),
 		"pulse": _key(KEY_F) or Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT), "dash": _key(KEY_SHIFT)})
+	for ev in sim.events:
+		match ev.name:
+			"mote_picked", "charm_picked": sfx.play("pick")
+			"lantern_lit": sfx.play("lit")
+			"pulse": sfx.play("pulse")
+			"player_hit": sfx.play("hit")
+			"dash": sfx.play("dash")
+			"shade_spawned": sfx.play("spawn")
+	if sim.grounded == false and sim.p_vel.y > 6.6 and sim.p_vel.y <= 7.0:
+		sfx.play("jump")
+	if sim.wind_enabled and not sim.wind_on and (Sim.WIND_EVERY - sim.steps % Sim.WIND_EVERY) == Sim.WIND_WARN:
+		sfx.play("wind")
+	var sec := int(ceil(sim.time_left))
+	if sec <= 10 and sec != last_sec and sec > 0:
+		sfx.play("tick")
+	last_sec = sec
 	sim.events.clear()
+	if sim.state != "playing":
+		_show_result()
 
 
 var _frames := 0
+var _fps_sum := 0.0
+var _fps_n := 0
+
 
 func _process(_dt: float) -> void:
 	_frames += 1
+	if OS.get_environment("DDL_AUTOPLAY") != "" and mode == "menu" and _frames == 5:
+		_start_night(night)
+		_play()
+	if mode == "play" and _frames > 60:
+		_fps_sum += Engine.get_frames_per_second()
+		_fps_n += 1
 	var shot := OS.get_environment("DDL_SHOT")  # bằng chứng: chụp màn hình sau N frame rồi thoát
-	if shot != "" and _frames == int(OS.get_environment("DDL_SHOT_FRAMES") if OS.get_environment("DDL_SHOT_FRAMES") != "" else "120"):
+	var limit := int(OS.get_environment("DDL_SHOT_FRAMES")) if OS.get_environment("DDL_SHOT_FRAMES") != "" else 120
+	if shot != "" and _frames == limit:
 		get_viewport().get_texture().get_image().save_png(shot)
+		print("avg_fps=%.1f samples=%d" % [_fps_sum / max(1, _fps_n), _fps_n])
 		get_tree().quit()
 	var t := Time.get_ticks_msec() / 1000.0
-	var vp := get_viewport().get_visible_rect().size
-	hud_mid.position = Vector2(vp.x / 2 - 150, 18)
-	hud_right.position = Vector2(vp.x - 324, 18)
-	hud_bottom.position = Vector2(vp.x / 2 - 300, vp.y - 70)
-	banner.position = Vector2(vp.x / 2 - 300, vp.y / 2 - 60)
 	player.position = sim.p_pos
 	player.rotation.y = atan2(sim.p_face.x, sim.p_face.z)
 	player.visible = sim.fall_wait == 0 and (sim.invuln == 0 or int(t * 12) % 2 == 0)
@@ -288,30 +607,30 @@ func _process(_dt: float) -> void:
 		n.position = s.pos
 		if Sim.xz(s.pos, sim.p_pos) > 0.1:
 			n.look_at(Vector3(sim.p_pos.x, s.pos.y, sim.p_pos.z), Vector3.UP, true)
-		var stun: bool = s.state == "stunned"
-		n.get_node("body").material_override.albedo_color = C.shade_stun if stun else C.shade
+		n.get_node("body").material_override = _mat(C.shade_stun if s.state == "stunned" else C.shade)
 		n.scale = Vector3.ONE * (0.4 if s.state == "spawning" else 1.0 + 0.06 * sin(t * 5.0)))
+	_sync(sim.drifters, drifter_nodes, _make_drifter, func(n, d):
+		n.position = d.pos
+		n.rotation.y = t * 2.0
+		for i in 4:
+			n.get_node("s%d" % i).position.y = 0.25 * sin(t * 6.0 - i * 0.9))
+	_sync(sim.charms, charm_nodes, _make_charm, func(n, c):
+		n.position = c.pos
+		n.visible = c.available
+		n.rotation.y = t * 1.5)
 	var lit := 0
 	for L in sim.lanterns:
 		var ln: Dictionary = lantern_nodes[L.id]
-		ln.lamp.material_override = _mat(C.lamp_on, 3.0) if L.lit else _mat(C.lamp_off.lerp(C.lamp_on, L.deposited / 10.0 * 0.5))
-		ln.light.light_energy = 2.5 if L.lit else 0.0
-		ln.ring.visible = L.lit
+		if ln.lit != L.lit or ln.dep != L.deposited:
+			ln.lamp.material_override = _mat(C.lamp_on, 3.0) if L.lit else _mat(C.lamp_off.lerp(C.lamp_on, snappedf(L.deposited / 10.0 * 0.5, 0.05)))
+			ln.light.light_energy = 2.5 if L.lit else 0.0
+			ln.ring.visible = L.lit
+			ln.lit = L.lit
+			ln.dep = L.deposited
 		lit += int(L.lit)
-	env.ambient_light_energy = 0.15 + 0.55 * lit / sim.lanterns.size()
-	var tl: float = max(sim.time_left, 0.0)
-	hud.text = "Ngọn Lửa  %s" % ("● ".repeat(sim.flames) + "○ ".repeat(max(0, 3 - sim.flames)))
-	hud_mid.text = "%02d:%02d" % [int(tl) / 60, int(tl) % 60]
-	hud_mid.add_theme_color_override("font_color", C.danger if tl <= 30 and int(t * 4) % 2 == 0 else C.ui)
-	hud_right.text = "Đèn %d/%d   Điểm %d" % [lit, sim.lanterns.size(), sim.score]
-	var near := ""
-	for L in sim.lanterns:
-		if not L.lit and Sim.xz(sim.p_pos, L.pos) <= 2.0:
-			near = "   E — Nạp ánh sáng (%d/10)" % L.deposited
-	hud_bottom.text = "Đom đóm  %s%s%s" % ["■".repeat(sim.carried), "□".repeat(10 - sim.carried), near]
-	if sim.state != "playing":
-		banner.visible = true
-		banner.text = ("Bình minh lên! Thắng — %d điểm" % sim.score if sim.state == "won" else "Thua rồi… — %d điểm" % sim.score) + "\nNhấn R để chơi lại"
+	if mode != "dawn":
+		env.ambient_light_energy = 0.15 + 0.55 * lit / sim.lanterns.size()
+	_update_hud(t)
 
 
 func _sync(items: Array, nodes: Dictionary, make: Callable, update: Callable) -> void:
