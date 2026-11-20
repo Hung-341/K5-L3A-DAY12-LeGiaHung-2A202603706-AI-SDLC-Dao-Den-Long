@@ -713,6 +713,7 @@ def test_leaderboard_order_top10_export():
     assert [x["score"] for x in e] == sorted([x["score"] for x in e], reverse=True)
     assert [x["name"] for x in e if x["score"] == 500] == ["P01", "P02"]   # bằng điểm: ai đạt trước đứng trên
     assert all(set(x) == {"name", "score", "nights_won", "achieved_at", "seed"} for x in e)
+    assert all(type(x[k]) is int for x in e for k in ("score", "nights_won", "seed")), e[0]
     assert all(re.match(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d$", x["achieved_at"]) for x in e), e[0]
 
 

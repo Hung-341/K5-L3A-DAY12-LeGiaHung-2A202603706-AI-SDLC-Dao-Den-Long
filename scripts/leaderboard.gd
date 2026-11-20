@@ -20,7 +20,12 @@ static func load_entries() -> Array:
 	if not FileAccess.file_exists(path()):
 		return []
 	var d = JSON.parse_string(FileAccess.get_file_as_string(path()))
-	return d.get("entries", []) if typeof(d) == TYPE_DICTIONARY else []
+	var out := []
+	for e in (d.get("entries", []) if typeof(d) == TYPE_DICTIONARY else []):
+		# JSON đọc số thành float; trả về số nguyên cho score / nights_won / seed
+		out.append({"name": str(e.get("name", "")), "score": int(e.get("score", 0)), "nights_won": int(e.get("nights_won", 0)),
+			"achieved_at": str(e.get("achieved_at", "")), "seed": int(e.get("seed", 0))})
+	return out
 
 
 static func save_entries(entries: Array) -> void:

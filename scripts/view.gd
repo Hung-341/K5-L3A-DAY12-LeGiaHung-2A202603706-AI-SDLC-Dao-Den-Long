@@ -931,8 +931,10 @@ func _update_hud(t: float) -> void:
 	lbl.sub.text = "\n".join(subs.map(func(x): return "▶ " + x[0]))
 	lbl.sub.position = Vector2(vp.x / 2 - 220, vp.y - 190)
 	flash.color.a = maxf(0.0, flash.color.a - dt * 1.5)
-	for k in lbl:
-		lbl[k].add_theme_font_size_override("font_size", fs(30 if k == "clock" else 22))
+	if hud.get_meta("fs", -1) != fs(22):  # chỉ đổi cỡ chữ khi tùy chọn đổi (đổi mỗi khung làm dàn trang lại)
+		hud.set_meta("fs", fs(22))
+		for k in lbl:
+			lbl[k].add_theme_font_size_override("font_size", fs(30 if k == "clock" else 22))
 	# mũi tên mép màn hình chỉ Bóng Mực vừa xuất hiện
 	for sa in spawn_arrows.duplicate():
 		sa[1] -= dt
@@ -1169,6 +1171,7 @@ func _process(_dt: float) -> void:  # _dt dùng cho làm mượt camera/xoay
 	_update_orbit(t, ppos)
 	if mode == "bench":
 		_bench_frame()
+		return  # HUD ẩn trong bench, không cập nhật
 	_update_trails(_dt)
 	_update_hud(t)
 

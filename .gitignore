@@ -4,3 +4,5 @@ out/
 *.jsonl
 .env
 __pycache__/
+.godot-bin/
+build/

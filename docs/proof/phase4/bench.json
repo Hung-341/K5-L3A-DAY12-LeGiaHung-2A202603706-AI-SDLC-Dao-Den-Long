@@ -1,0 +1,12 @@
+{
+  "contract_version": "1.3",
+  "avg_fps": 135.9,
+  "p1_low_fps": 43.0,
+  "frame_ms_p95": 12.23,
+  "frames": 4077,
+  "load_ms": 2754,
+  "peak_mem_mb": 584.6,
+  "vsync_off": true,
+  "renderer": "Godot 4.7.2-stable (official), forward_plus, NVIDIA GeForce GTX 1660 Ti",
+  "os": "Windows 10.0.26200"
+}
