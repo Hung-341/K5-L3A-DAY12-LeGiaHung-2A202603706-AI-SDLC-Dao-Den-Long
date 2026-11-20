@@ -1,0 +1,15 @@
+config_version=5
+
+[application]
+
+config/name="Dao Den Long"
+run/main_scene="res://scenes/Main.tscn"
+config/features=PackedStringArray("4.7")
+
+[physics]
+
+common/physics_ticks_per_second=60
+
+[rendering]
+
+renderer/rendering_method="forward_plus"

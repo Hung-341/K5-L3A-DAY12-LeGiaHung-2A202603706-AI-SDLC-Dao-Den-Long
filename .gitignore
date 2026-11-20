@@ -1,0 +1,6 @@
+.godot/
+.superpowers/
+out/
+*.jsonl
+.env
+__pycache__/
