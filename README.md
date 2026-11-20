@@ -23,7 +23,9 @@ godot --path .                                                   # run_cmd: bả
 | Chuột | Xoay camera (độ nhạy chỉnh trong Cài đặt) |
 | Space | Nhảy |
 | Shift | Lướt |
-| E | Nạp đom đóm vào đèn gần nhất |
+| E | Nạp đom đóm vào đèn / châm dầu |
+| Q | Gió Đèn (5 đom đóm): thổi bay Sương Gai |
+| Cuộn chuột | Zoom camera |
 | F hoặc chuột trái | Tỏa Sáng |
 | Esc hoặc P | Tạm dừng (Tiếp tục / Chơi lại Đêm / Cài đặt / Về menu) |
 
@@ -51,10 +53,21 @@ python3 tests/run_tests.py              # 29 scenario headless, gồm kiểm tra
 
 ## Sáng tạo của tôi
 
-- **Phong cách "đảo đồ chơi trong mơ":** nhân vật chibi đầu to, camera nhìn chéo từ trên cao có tilt-shift (DOF gần/xa), hoa hồng tím rải khắp đảo, trăng lưỡi liềm hồng. Màu chính theo bảng chuẩn; hồng tím chỉ dùng cho chi tiết trang trí.
-- Bóng Mực có mắt tím phát sáng, răng nanh trắng, phình xẹp như đang thở; lúc vừa sinh ra thì nhỏ lại (trạng thái `spawning`, vô hại 0.5 s) để người chơi kịp thấy.
-- Toàn bộ phần thêm chỉ nằm trong `scripts/view.gd`, không đụng `sim.gd`, nên output headless không đổi. Bằng chứng: 69/69 test vẫn đạt ([run_tests.txt](docs/proof/phase2/run_tests.txt)).
+Phần thêm chia hai loại. Cả hai đều không đổi luật hay số liệu chuẩn.
+
+**A. Chỉ có trong bản giao diện** (`scripts/view.gd`, `scripts/creative.gd`; headless không nạp hai file này, nên output contract không đổi):
+- **Sương Gai:** kẻ địch mới (ticket cho phép thêm kẻ địch ngoài Bóng Mực và Gió Lạc). Mỗi 4 đom đóm Mây đang mang thu hút thêm 1 Sương Gai, tối đa 5. Chúng tới từ hướng bất kỳ, nhanh 6 m/s, chạm thì cướp 1 đom đóm và **không trừ Ngọn Lửa**. Người chơi phải chọn: ôm nhiều để thắp và châm dầu nhanh, hay nạp sớm cho an toàn.
+- **Gió Đèn (Q):** tốn 5 đom đóm, thổi bay Sương Gai trong 9 m, hồi 4 s. Không tác động Bóng Mực, vì luật chuẩn quy định Bóng Mực chỉ bị Tỏa Sáng đẩy và không chết.
+- **Viền tối:** mang càng nhiều đom đóm, rìa màn hình càng tối. Ánh sáng môi trường chuẩn (`0.15 + 0.55 × đèn sáng/tổng`) giữ nguyên.
+- **Đảo "đồ chơi trong mơ":** nhân vật chibi, tilt-shift; cây, đá, cỏ, hoa (có cuống và cánh, không phát sáng để không nhầm với đom đóm); hàng rào gỗ đánh dấu vùng an toàn 6 m. Trang trí **không có va chạm** và được đặt tránh đèn, điểm đom đóm, bục nhảy, để không đổi bản đồ chuẩn.
+- **Cảm giác điều khiển:** nội suy hình giữa các tick, camera góc nhìn thứ ba xoay tự do (chuột ngang/dọc, cuộn để zoom, không xuyên đất), nhớ phím 0.1 s. Bóng Mực để lại vệt mực khi đuổi; tốc độ thật vẫn là 4.0 m/s.
 - Âm thanh tổng hợp bằng code (`scripts/sfx.gd`), không dùng file âm thanh ngoài.
+
+**B. Lựa chọn thiết kế trong khuôn luật** (trong `sim.gd`, có test):
+- Đom đóm sinh ở **điểm trống xa Mây nhất**: ticket chỉ nói "một điểm trống". Xem `test_mote_spawn_farthest_free_point`.
+- Bóng Mực lang thang theo **4 tính cách** theo id: bám đuôi ở 14 m, tuần tra mép đảo, rình quanh đèn, đi ngẫu nhiên. Tốc độ ≤ 4.0 m/s; luật đuổi, hút dầu, gây hit giữ nguyên. Xem `test_wander_personalities_speed_capped`.
+
+Bằng chứng phần cũ vẫn đúng: toàn bộ test headless vẫn đạt ([docs/proof/](docs/proof/)).
 
 ## Harness AI
 

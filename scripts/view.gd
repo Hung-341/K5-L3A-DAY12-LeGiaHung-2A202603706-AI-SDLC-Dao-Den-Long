@@ -4,6 +4,7 @@ extends Node3D
 
 const Sim = preload("res://scripts/sim.gd")
 const Sfx = preload("res://scripts/sfx.gd")
+const Creative = preload("res://scripts/creative.gd")
 const C := {
 	"sky": Color("#0E1430"), "fog": Color("#1B2350"), "grass": Color("#2F5D50"), "sand": Color("#C9B48A"),
 	"wood": Color("#6B4A2F"), "sea": Color("#12384A"), "lamp_on": Color("#FFB347"), "lamp_core": Color("#FFE9B0"),
@@ -45,6 +46,14 @@ var panel: VBoxContainer
 var sfx: Sfx
 var last_sec := -1
 var mats := {}
+var creative
+var pitch := 40.0       # camera góc nhìn thứ ba: xoay dọc (chuột), zoom (cuộn chuột)
+var cam_dist := 17.0
+var trails: Array = []  # vệt mực sau Bóng Mực đang đuổi
+var trail_t := 0.0
+var hud_panels := []
+var cell_styles := []
+var menu_bg: ColorRect
 const BUFFER_TICKS := 6
 var buffer := {"jump": 0, "dash": 0, "pulse": 0}
 var held := {"jump": false, "dash": false, "pulse": false}
@@ -63,6 +72,13 @@ func _ready() -> void:
 	ui = CanvasLayer.new()
 	add_child(ui)
 	_build_hud()
+	menu_bg = ColorRect.new()
+	menu_bg.color = Color(C.sky, 0.72)
+	menu_bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	ui.add_child(menu_bg)
+	creative = Creative.new()
+	add_child(creative)
+	creative.setup(self, ui)
 	panel = VBoxContainer.new()
 	panel.alignment = BoxContainer.ALIGNMENT_CENTER
 	panel.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -93,6 +109,7 @@ func _clear_panel() -> void:
 	for c in panel.get_children():
 		c.queue_free()
 	panel.visible = true
+	menu_bg.visible = true
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 
@@ -170,6 +187,7 @@ func _play() -> void:
 	mode = "play"
 	paused = false
 	panel.visible = false
+	menu_bg.visible = false
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
@@ -278,6 +296,9 @@ func _load_night(n: int) -> void:
 		colorblind = OS.get_environment("DDL_DEMO") == "cb"
 	yaw = 0.0
 	last_sec = -1
+	trails.clear()
+	if creative:
+		creative.reset(sim)
 	env = Environment.new()
 	env.background_mode = Environment.BG_COLOR
 	env.background_color = C.sky
@@ -370,21 +391,7 @@ func _build_terrain(n: int) -> void:
 			deco = [Vector3.ZERO, 44.0]
 	for pad in sim.LV.pads:
 		_mesh(_cyl(1, 1, 0.15), _mat(C.gold, 1.5), pad.pos + Vector3(0, 0.08, 0))
-	# hoa hồng tím, cây (trang trí)
-	for k in range(0, deco.size(), 2):
-		for i in 70:
-			var p: Vector3 = deco[k] + Sim._polar(r.randf_range(4.0, deco[k + 1]), r.randf_range(0, 360))
-			var g: float = sim.ground(p.x, p.z)
-			if g <= Sim.NO_GROUND:
-				continue
-			_mesh(_sphere(0.16), _mat(C.pink if i % 2 == 0 else C.lilac, 0.6), Vector3(p.x, g + 0.15, p.z))
-		for i in 8:
-			var p: Vector3 = deco[k] + Sim._polar(r.randf_range(9.0, deco[k + 1] - 3), r.randf_range(0, 360))
-			var g: float = sim.ground(p.x, p.z)
-			if g <= Sim.NO_GROUND or absf(g - sim.ground(p.x + 1.5, p.z)) > 0.01:
-				continue
-			_mesh(_cyl(0.35, 0.45, 2.2), _mat(C.wood), Vector3(p.x, g + 1.1, p.z))
-			_mesh(_sphere(1.6), _mat(C.grass.lightened(0.15)), Vector3(p.x, g + 3.0, p.z))
+	_decorate(deco, r)
 
 
 func _make_lantern(L: Dictionary) -> void:
@@ -493,14 +500,29 @@ func _build_hud() -> void:
 	hud.set_anchors_preset(Control.PRESET_FULL_RECT)
 	hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	ui.add_child(hud)
-	for k in ["flames", "clock", "right", "prompt", "dash", "pulse", "warn", "cap"]:
+	for i in 5:
+		var pn := Panel.new()
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = Color(C.sky, 0.6)
+		sb.border_color = Color(C.gold, 0.8)
+		sb.set_border_width_all(2)
+		sb.set_corner_radius_all(12)
+		pn.add_theme_stylebox_override("panel", sb)
+		pn.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		hud.add_child(pn)
+		hud_panels.append(pn)
+	for k in ["flames", "clock", "right", "prompt", "dash", "pulse", "warn", "cap", "windq"]:
 		lbl[k] = _label(hud)
 	lbl.clock.add_theme_font_size_override("font_size", 30)
 	lbl.right.add_theme_color_override("font_color", C.gold)
 	lbl.flames.add_theme_color_override("font_color", C.lamp_on)
 	lbl.warn.add_theme_color_override("font_color", C.drifter)
 	for i in 20:
-		var c := ColorRect.new()
+		var c := Panel.new()
+		var cs := StyleBoxFlat.new()
+		cs.set_corner_radius_all(9)
+		c.add_theme_stylebox_override("panel", cs)
+		cell_styles.append(cs)
 		c.size = Vector2(18, 26)
 		c.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		hud.add_child(c)
@@ -531,13 +553,23 @@ func _update_hud(t: float) -> void:
 		cells[i].visible = i < cap
 		cells[i].size = Vector2(18, 26)
 		cells[i].position = Vector2(vp.x / 2 - cap * 11 + i * 22, vp.y - 56)
-		cells[i].color = C.mote_halo if i < sim.carried else Color(C.ui, 0.18)
+
 	lbl.cap.text = "%d/%d" % [sim.carried, cap]
 	lbl.cap.position = Vector2(vp.x / 2 + cap * 11 + 8, vp.y - 60)
 	lbl.dash.text = "Lướt " + ("✓" if sim.dash_cd == 0 or sim.charm_t > 0 else "%.1fs" % (sim.dash_cd / 60.0))
 	lbl.pulse.text = "Tỏa Sáng " + ("✓" if sim.pulse_cd == 0 and sim.carried >= 3 else ("%.1fs" % (sim.pulse_cd / 60.0) if sim.pulse_cd > 0 else "cần 3"))
-	lbl.dash.position = Vector2(vp.x - 210, vp.y - 92)
-	lbl.pulse.position = Vector2(vp.x - 210, vp.y - 58)
+	lbl.dash.position = Vector2(vp.x - 230, vp.y - 126)
+	lbl.pulse.position = Vector2(vp.x - 230, vp.y - 92)
+	lbl.windq.text = "Q Gió Đèn " + ("✓" if creative.wind_cd == 0.0 and sim.carried >= creative.WIND_COST else ("%.1fs" % creative.wind_cd if creative.wind_cd > 0 else "cần 5"))
+	lbl.windq.position = Vector2(vp.x - 230, vp.y - 58)
+	# khung bo góc cho các cụm HUD
+	var boxes := [Rect2(12, 10, 230, 44), Rect2(vp.x / 2 - 70, 8, 140, 50), Rect2(vp.x - 412, 10, 400, 44),
+		Rect2(vp.x - 242, vp.y - 132, 230, 112), Rect2(vp.x / 2 - sim.capacity() * 11 - 12, vp.y - 66, sim.capacity() * 22 + 70, 46)]
+	for i in hud_panels.size():
+		hud_panels[i].position = boxes[i].position
+		hud_panels[i].size = boxes[i].size
+	for i in cell_styles.size():
+		cell_styles[i].bg_color = C.mote_halo if i < sim.carried else Color(C.ui, 0.15)
 	var near := ""
 	var best = null
 	var bd := INF
@@ -583,6 +615,9 @@ func _unhandled_input(e: InputEvent) -> void:
 		return
 	if e is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		yaw -= e.relative.x * sens
+		pitch = clampf(pitch + e.relative.y * sens * 0.6, 12.0, 75.0)
+	elif e is InputEventMouseButton and e.pressed and e.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
+		cam_dist = clampf(cam_dist * (0.9 if e.button_index == MOUSE_BUTTON_WHEEL_UP else 1.1), 7.0, 32.0)
 	elif e is InputEventKey and e.pressed and not e.echo and e.keycode in [KEY_ESCAPE, KEY_P]:
 		if paused:
 			_play()
@@ -641,6 +676,7 @@ func _physics_process(_dt: float) -> void:
 		sfx.play("tick")
 	last_sec = sec
 	sim.events.clear()
+	creative.tick(_dt, _key(KEY_Q))
 	if sim.state != "playing":
 		_show_result()
 
@@ -678,7 +714,11 @@ func _process(_dt: float) -> void:  # _dt dùng cho làm mượt camera/xoay
 	var target := ppos + Vector3(0, 1.0, 0)
 	cam_focus = target if cam_focus.distance_to(target) > 12.0 else cam_focus.lerp(target, minf(1.0, _dt * 10.0))
 	var far := 1.0 + clampf(Vector2(sim.p_vel.x, sim.p_vel.z).length() - 7.0, 0.0, 10.0) * 0.03  # kéo xa khi lướt/bay
-	cam.position = cam_focus - fwd * 13.0 * far + Vector3(0, 11.0 * far, 0)
+	var pr := deg_to_rad(pitch)
+	var want_cam := cam_focus - fwd * cos(pr) * cam_dist * far + Vector3(0, sin(pr) * cam_dist * far, 0)
+	var g: float = sim.ground(want_cam.x, want_cam.z)
+	want_cam.y = maxf(want_cam.y, (g if g > Sim.NO_GROUND else cam_focus.y - 2.0) + 1.0)  # không xuyên đất
+	cam.position = want_cam
 	cam.look_at(cam_focus)
 	var focus := cam_focus
 	(cam.attributes as CameraAttributesPractical).dof_blur_far_distance = cam.position.distance_to(focus) + 6.0
@@ -724,7 +764,131 @@ func _process(_dt: float) -> void:  # _dt dùng cho làm mượt camera/xoay
 		lit += int(L.lit)
 	if mode != "dawn":
 		env.ambient_light_energy = 0.15 + 0.55 * lit / sim.lanterns.size()
+	creative.render(t)
+	_update_trails(_dt)
 	_update_hud(t)
+
+
+## Vệt mực sau Bóng Mực đang đuổi: chỉ là hình, tốc độ thật vẫn theo luật.
+func _update_trails(dt: float) -> void:
+	trail_t += dt
+	if trail_t >= 0.06 and not paused:
+		trail_t = 0.0
+		for s in sim.shades:
+			if s.state == "chase" and trails.size() < 80:
+				var m := _mesh(_sphere(0.35), _mat(rim(), 0.8, 0.35), s.pos - Vector3(0, 0.3, 0))
+				trails.append([m, 0.6])
+	for tr in trails.duplicate():
+		tr[1] -= dt
+		tr[0].scale = Vector3.ONE * maxf(tr[1] / 0.6, 0.01)
+		if tr[1] <= 0.0:
+			tr[0].queue_free()
+			trails.erase(tr)
+
+
+func _multi(mesh: Mesh, mat: Material, xf: Array) -> void:
+	if xf.is_empty():
+		return
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.mesh = mesh
+	mm.instance_count = xf.size()
+	for i in xf.size():
+		mm.set_instance_transform(i, xf[i])
+	var mi := MultiMeshInstance3D.new()
+	mi.multimesh = mm
+	mi.material_override = mat
+	world.add_child(mi)
+
+
+## Điểm trang trí hợp lệ: có đất phẳng, tránh xa đèn / điểm đom đóm / bục nhảy / bùa / điểm xuất phát
+## (trang trí không có va chạm, nên đặt ngoài lối chơi để không đè lên luật bản đồ chuẩn).
+func _free_spot(p: Vector3, clear: float) -> float:
+	var g: float = sim.ground(p.x, p.z)
+	if g <= Sim.NO_GROUND:
+		return Sim.NO_GROUND
+	for d in [Vector3(1, 0, 0), Vector3(-1, 0, 0), Vector3(0, 0, 1), Vector3(0, 0, -1)]:
+		if absf(sim.ground(p.x + d.x * clear, p.z + d.z * clear) - g) > 0.01:
+			return Sim.NO_GROUND
+	var avoid: Array = sim.LV.lanterns.map(func(v): return [v, 7.5]) + sim.LV.motes.map(func(v): return [v, 1.6]) \
+		+ sim.LV.pads.map(func(v): return [v.pos, 3.0]) + sim.LV.charms.map(func(v): return [v, 2.0]) + [[sim.LV.start, 3.0]]
+	for a in avoid:
+		if Sim.xz(p, a[0]) < a[1] + clear:
+			return Sim.NO_GROUND
+	return g
+
+
+func _decorate(deco: Array, r: RandomNumberGenerator) -> void:
+	var stems := []
+	var petals := [[], []]
+	var centers := []
+	var grass := []
+	var rocks := []
+	var trunks := []
+	var crowns := []
+	var pines := []
+	for k in range(0, deco.size(), 2):
+		var c: Vector3 = deco[k]
+		var rad: float = deco[k + 1]
+		for i in 900:
+			var p: Vector3 = c + Sim._polar(sqrt(r.randf()) * rad, r.randf_range(0, 360))
+			var g := _free_spot(p, 0.2)
+			if g <= Sim.NO_GROUND:
+				continue
+			var b := Basis(Vector3.UP, r.randf_range(0, TAU))
+			if i % 9 == 0:   # hoa: cuống + vành cánh + nhụy, không phát sáng (khác đom đóm)
+				var h := r.randf_range(0.25, 0.45)
+				stems.append(Transform3D(b, Vector3(p.x, g + h / 2, p.z)).scaled_local(Vector3(1, h / 0.4, 1)))
+				petals[i % 2].append(Transform3D(b, Vector3(p.x, g + h, p.z)))
+				centers.append(Transform3D(b, Vector3(p.x, g + h + 0.03, p.z)))
+			else:            # bụi cỏ
+				var sc := r.randf_range(0.6, 1.3)
+				grass.append(Transform3D(b.scaled(Vector3(sc, sc * r.randf_range(0.8, 1.6), sc)), Vector3(p.x, g, p.z)))
+		for i in 60:
+			var p: Vector3 = c + Sim._polar(r.randf_range(6.0, rad), r.randf_range(0, 360))
+			var g := _free_spot(p, 1.0)
+			if g <= Sim.NO_GROUND:
+				continue
+			var sc := r.randf_range(0.5, 1.4)
+			rocks.append(Transform3D(Basis(Vector3.UP, r.randf_range(0, TAU)).scaled(Vector3(sc * 1.3, sc * 0.7, sc)), Vector3(p.x, g + 0.15 * sc, p.z)))
+		for i in 45:
+			var p: Vector3 = c + Sim._polar(r.randf_range(8.0, rad - 1.0), r.randf_range(0, 360))
+			var g := _free_spot(p, 2.0)
+			if g <= Sim.NO_GROUND:
+				continue
+			var sc := r.randf_range(0.8, 1.3)
+			trunks.append(Transform3D(Basis().scaled(Vector3(sc, sc, sc)), Vector3(p.x, g + 1.1 * sc, p.z)))
+			if i % 2 == 0:
+				crowns.append(Transform3D(Basis().scaled(Vector3(sc, sc * 0.9, sc)), Vector3(p.x, g + 3.0 * sc, p.z)))
+			else:
+				pines.append(Transform3D(Basis().scaled(Vector3(sc, sc, sc)), Vector3(p.x, g + 3.2 * sc, p.z)))
+	var stem := _cyl(0.02, 0.02, 0.4)
+	var ring := TorusMesh.new()
+	ring.inner_radius = 0.03
+	ring.outer_radius = 0.16
+	var blade := _cyl(0.0, 0.09, 0.45)
+	var rock := _sphere(0.6)
+	var pine := _cyl(0.0, 1.5, 3.4)
+	_multi(stem, _mat(C.grass.lightened(0.2)), stems)
+	_multi(ring, _mat(C.pink), petals[0])
+	_multi(ring, _mat(C.lilac), petals[1])
+	_multi(_sphere(0.06), _mat(C.gold), centers)
+	_multi(blade, _mat(C.grass.lightened(0.12)), grass)
+	_multi(rock, _mat(Color("#5C5A70")), rocks)
+	_multi(_cyl(0.35, 0.45, 2.2), _mat(C.wood), trunks)
+	_multi(_sphere(1.6), _mat(C.grass.lightened(0.15)), crowns)
+	_multi(pine, _mat(C.grass.darkened(0.1)), pines)
+	# hàng rào gỗ quanh đèn (đánh dấu vùng an toàn 6 m, không va chạm)
+	var posts := []
+	for L in sim.LV.lanterns:
+		for k in 10:
+			var p: Vector3 = L + Sim._polar(6.6, k * 36.0 + 18.0)
+			var g: float = sim.ground(p.x, p.z)
+			if g > Sim.NO_GROUND and absf(g - L.y) < 0.01:
+				posts.append(Transform3D(Basis(), Vector3(p.x, g + 0.45, p.z)))
+	var post := BoxMesh.new()
+	post.size = Vector3(0.18, 0.9, 0.18)
+	_multi(post, _mat(C.wood), posts)
 
 
 ## Nội suy giữa vị trí tick trước và tick hiện tại; bỏ qua khi dịch chuyển xa (hồi sinh).
