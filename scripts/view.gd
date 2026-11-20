@@ -1085,7 +1085,13 @@ var _fps_n := 0
 
 func _process(_dt: float) -> void:  # _dt dùng cho làm mượt camera/xoay
 	_frames += 1
-	if OS.get_environment("DDL_AUTOPLAY") != "" and mode == "menu" and _frames == 5:
+	var cam_env := OS.get_environment("DDL_CAM")  # ảnh bằng chứng: "pitch,dist,yaw"
+	if cam_env != "" and _frames == 5:
+		var c := cam_env.split(",")
+		pitch = float(c[0])
+		cam_dist = float(c[1])
+		yaw = float(c[2])
+	if (OS.get_environment("DDL_AUTOPLAY") != "" or OS.get_environment("DDL_STILL") != "") and mode == "menu" and _frames == 5:
 		_start_night(night)
 		_play()
 	if mode == "play" and _frames > 60:
