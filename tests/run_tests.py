@@ -468,6 +468,35 @@ def test_determinism_night3():
     assert open(o1, "rb").read() == open(o2, "rb").read()
 
 
+def test_hit_order_by_id():
+    # Ticket-02 bước 9: Bóng Mực gây hit xét theo id tăng dần, không theo thứ tự khai báo
+    c, L, _ = run(ticks=2, scenario=sc(shades=[{"id": "S2", "pos": [0.5, 1, 0]}, {"id": "S1", "pos": [-0.5, 1, 0]}]), every=1)
+    st = {x["id"]: x["state"] for x in snap(L, 1)["shades"]}
+    assert st["S1"] == "recoil" and st["S2"] != "recoil", st
+
+
+def test_scenario_state_default_duration():
+    # state khai trong scenario mà thiếu state_ticks_left thì dùng đủ thời lượng của trạng thái đó
+    c, L, _ = run(ticks=5, scenario=sc(shades=[{"id": "S1", "pos": [0.5, 1, 0], "state": "stunned"}]), every=1)
+    assert not events(L, "player_hit") and snap(L, 5)["shades"][0]["state"] == "stunned"
+    sc2 = sc(player={"carried": 3}, drifters=[{"id": "D1", "pos": [3, 1.5, 0], "state": "flee", "stolen": 3}])
+    c, L, _ = run(night=2, ticks=8, scenario=sc2, inputs={"frames": [{"tick": 5, "pulse": True}]})
+    assert events(L, "drifter_drop"), L[-3:]
+
+
+def test_invuln_bool():
+    c, L, _ = run(ticks=3, scenario=sc(player={"invuln_ticks": 30}), every=1)
+    assert snap(L, 1)["player"]["invuln"] is True and snap(L, 0)["player"]["invuln"] is True
+
+
+def test_ramp_edge_no_gap():
+    a = math.radians(30)
+    d, perp = (math.cos(a), math.sin(a)), (-math.sin(a), math.cos(a))
+    p = [23.98 * d[0] + 1.4 * perp[0], 0, 23.98 * d[1] + 1.4 * perp[1]]
+    c, L, _ = run(night=3, ticks=30, scenario=sc(player={"pos": [p[0], 3, p[2]]}))
+    assert not events(L, "player_hit"), "rơi ở khe mép dốc"
+
+
 if __name__ == "__main__":
     names = sys.argv[1:] or [n for n in list(globals()) if n.startswith("test_")]
     bad = 0

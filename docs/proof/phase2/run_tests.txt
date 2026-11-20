@@ -50,4 +50,8 @@ PASS test_wind
 PASS test_safe_push_on_lit
 PASS test_full_night_perf
 PASS test_determinism_night3
-52/52 passed
+PASS test_hit_order_by_id
+PASS test_scenario_state_default_duration
+PASS test_invuln_bool
+PASS test_ramp_edge_no_gap
+56/56 passed

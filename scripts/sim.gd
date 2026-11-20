@@ -215,7 +215,9 @@ func _num_id(id: String) -> int:
 	return int(id.substr(1)) if id.substr(1).is_valid_int() else 0
 
 
-func add_shade(pos: Vector3, id := "", st := "wander", t := 0) -> void:
+func add_shade(pos: Vector3, id := "", st := "wander", t := -1) -> void:
+	if t < 0:  # scenario khai state mà thiếu state_ticks_left: dùng đủ thời lượng của trạng thái
+		t = {"stunned": _ticks("pulse_stun_s"), "recoil": RECOIL_TICKS, "spawning": SHADE_SPAWNING}.get(st, 0)
 	if id == "":
 		id = "S%d" % next_shade
 	next_shade = max(next_shade, _num_id(id) + 1)
@@ -224,7 +226,9 @@ func add_shade(pos: Vector3, id := "", st := "wander", t := 0) -> void:
 	shades.append({"id": id, "pos": pos, "off": off, "state": st, "t": t, "push_t": 0, "dir": Vector3.RIGHT, "target": pos, "born": steps})
 
 
-func add_drifter(pos: Vector3, id := "", st := "idle", stolen := 0, t := 0) -> void:
+func add_drifter(pos: Vector3, id := "", st := "idle", stolen := 0, t := -1) -> void:
+	if t < 0:
+		t = FLEE_TICKS if st == "flee" else 0
 	if id == "":
 		id = "D%d" % next_drifter
 	next_drifter = max(next_drifter, _num_id(id) + 1)
@@ -245,12 +249,12 @@ func apply_scenario(sc: Dictionary) -> void:
 		shades.clear()
 		for s in sc["shades"]:
 			var p: Array = s["pos"]
-			add_shade(Vector3(p[0], p[1], p[2]), s.get("id", ""), s.get("state", "wander"), int(s.get("state_ticks_left", 0)))
+			add_shade(Vector3(p[0], p[1], p[2]), s.get("id", ""), s.get("state", "wander"), int(s.get("state_ticks_left", -1)))
 	if sc.has("drifters"):
 		drifters.clear()
 		for d in sc["drifters"]:
 			var p: Array = d["pos"]
-			add_drifter(Vector3(p[0], p[1], p[2]), d.get("id", ""), d.get("state", "idle"), int(d.get("stolen", 0)), int(d.get("state_ticks_left", 0)))
+			add_drifter(Vector3(p[0], p[1], p[2]), d.get("id", ""), d.get("state", "idle"), int(d.get("stolen", 0)), int(d.get("state_ticks_left", -1)))
 	if sc.has("charms"):
 		var old := charms.duplicate()
 		charms.clear()
@@ -410,7 +414,9 @@ func step(inp: Dictionary) -> void:
 				d.t = FLEE_TICKS
 				_emit("drifter_steal", {"drifter_id": d.id, "amount": amt, "carried": carried})
 		if invuln == 0:
-			for s in shades:
+			var by_id := shades.duplicate()
+			by_id.sort_custom(func(a, b): return _num_id(a.id) < _num_id(b.id))
+			for s in by_id:
 				if s["state"] in ["wander", "chase"] and s.born < steps and _in_safe(s["pos"]).is_empty() \
 						and _touch(s["pos"], float(T["shade_hit_radius"])):
 					_hit(s)
@@ -713,7 +719,7 @@ func _spawn() -> void:
 	for i in n:
 		if shades.size() >= int(LV.max):
 			return
-		var ok: Array = LV.shades.filter(func(pt): return xz(pt, p_pos) >= SHADE_MIN_DIST)
+		var ok: Array = LV.shades.filter(func(pt): return xz(pt, p_pos) >= SHADE_MIN_DIST and _in_safe(pt).is_empty())
 		if ok.is_empty():
 			return
 		var id := "S%d" % next_shade
@@ -752,6 +758,6 @@ func snapshot(tick: int) -> Dictionary:
 		"time_left_s": r3(time_left), "score": score,
 		"wind": {"active": wind_on, "dir_deg": r3(wind_dir_deg)},
 		"player": {"pos": v3(p_pos), "flames": flames, "carried": carried, "vel": v3(p_vel),
-			"grounded": grounded, "invuln": r3(invuln * DT), "dash_cd_s": r3(dash_cd * DT),
+			"grounded": grounded, "invuln": invuln > 0, "dash_cd_s": r3(dash_cd * DT),
 			"pulse_cd_s": r3(pulse_cd * DT), "charm_s": r3(charm_t * DT)},
 		"lanterns": ls, "shades": ss, "motes_active": motes.size(), "motes": ms, "drifters": ds, "charms": cs}

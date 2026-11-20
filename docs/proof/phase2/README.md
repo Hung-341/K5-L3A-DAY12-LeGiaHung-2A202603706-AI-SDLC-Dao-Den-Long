@@ -1,6 +1,6 @@
 # Bằng chứng Phase 2 (Contract v1.1)
 
-Chạy lại: `python3 tests/run_tests.py` → [run_tests.txt](run_tests.txt) (52/52 đạt ở tag `phase-2`, gồm toàn bộ test Phase 1).
+Chạy lại: `python3 tests/run_tests.py` → [run_tests.txt](run_tests.txt) (56/56 đạt ở tag `phase-2`, gồm toàn bộ test Phase 1).
 Bảng acceptance criteria đầy đủ cho từng tính năng: [docs/notes/phase2.md](../../notes/phase2.md).
 
 | Yêu cầu Ticket-02 | Kiểm chứng | Kết quả |

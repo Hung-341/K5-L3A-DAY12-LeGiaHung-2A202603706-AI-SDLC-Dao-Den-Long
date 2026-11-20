@@ -24,7 +24,7 @@
 - **Tỏa Sáng đo 3D từ chân + 0.8 m** (v1.1), thay cho XZ (v1.0). Test `test_pulse_xz_edge` của Phase 1 được **thay** bằng `test_pulse_3d_edge`, vì luật cũ không còn hiệu lực.
 - **Đẩy lùi diễn ra dần trong 15 tick** (Phase 1 đã làm vậy). `test_pulse` đo ở tick 20.
 - **Event `player_hit` khi rơi:** đổi thành `dropped: 0, lost: n`, vì đom đóm bị mất chứ không rơi ra đất.
-- **`invuln` trong snapshot:** đổi từ boolean thành số giây còn lại, theo cách đặt tên `*_s` của v1.1.
+- **`invuln` trong snapshot:** giữ boolean như v1.0. Ticket chỉ gắn hậu tố `_s` cho `dash_cd_s`, `pulse_cd_s`, `charm_s`.
 - Các luật đã chuẩn hóa từ Phase 1 (số liệu, bản đồ Đêm 1, thứ tự 12 bước) giữ nguyên, nên test Phase 1 không phải sửa.
 
 ## Giả định (chỗ Ticket-02 chưa nói)
@@ -36,6 +36,9 @@
 | Thời gian `spawning` | 30 tick, vô hại (giữ như Phase 1) |
 | `night_start` | Ghi ngay sau snapshot tick 0, với `tick: 0` |
 | Tương tác đèn ở tầng khác | Cần chênh cao ≤ 1.5 m (như khi nhặt và khi chạm) |
+| Scenario khai `state` mà thiếu `state_ticks_left` | Dùng đủ thời lượng của trạng thái: stunned 120, recoil 60, spawning 30, flee 240 |
+| Điểm sinh Bóng Mực nằm trong vùng an toàn của đèn đã sáng | Coi là điểm không hợp lệ, bỏ qua |
+| Trạng thái `removed` của Gió Lạc | Gió Lạc bị xóa khỏi mảng `drifters`, không xuất hiện với state `removed` |
 | `pause` trong headless | Khi đang tạm dừng, nút khác vẫn được đọc để không tạo cạnh false→true giả lúc tiếp tục |
 
 ## Nhật ký AI, lỗi, token
@@ -43,8 +46,14 @@
 - **Lỗi AI 1:** khi chặn Bóng Mực ở mép vùng an toàn, phép so dùng `>= sr` đúng tuyệt đối. Sai số float khiến bóng ở mép (5.9999) lọt vào trong. `test_safe_push_on_lit` bắt được; đã sửa bằng dung sai 1e-3.
 - **Lỗi AI 2:** Bóng Mực vẫn chạy AI đuổi trong lúc đang bị đẩy khỏi vùng an toàn, nên không ra kịp trong 30 tick. Cùng test bắt được; đã đóng băng AI trong lúc bị đẩy.
 - **Lỗi AI 3:** ghi đè `view.gd` khi file đã đổi trên đĩa nên lệnh bị từ chối. Đọc lại rồi ghi; không mất gì.
+- **Reviewer độc lập (Opus) sau khi gắn tag:** không có lỗi Critical. Có 3 lỗi Important:
+  - Bóng Mực gây hit theo thứ tự trong mảng thay vì theo id tăng dần.
+  - Scenario khai `state` mà thiếu số tick thì trạng thái kết thúc ngay.
+  - `invuln` xuất số giây thay vì boolean.
+
+  Thêm 1 lỗi Minor: điểm sinh nằm trong vùng an toàn. Mỗi lỗi có test đỏ trước, xanh sau (`test_hit_order_by_id`, `test_scenario_state_default_duration`, `test_invuln_bool`). Lỗi "khe ở mép dốc" không tái hiện được (`test_ramp_edge_no_gap` đạt ngay) nên không sửa. Bộ test 56/56.
 - **Token Phase 2:** ước tính khoảng 250–300k. Phần lớn là viết `sim.gd`, `view.gd` và các test. Không dùng subagent trong lúc viết để tiết kiệm; chỉ dùng một reviewer ở cuối.
 
 ## Đánh giá nhanh
-- Đạt: 52/52 test, gồm toàn bộ test Phase 1 (hồi quy). Ba Đêm chạy được cả headless lẫn GUI. FPS khoảng 106–110.
+- Đạt: 56/56 test, gồm toàn bộ test Phase 1 (hồi quy). Ba Đêm chạy được cả headless lẫn GUI. FPS khoảng 106–110.
 - Chưa làm: hiệu ứng lá bay khi gió sắp nổi mới chỉ có chữ trên HUD và âm thanh, chưa có hạt lá. Phần sáng tạo (thanh Tỉnh táo, thể lực) dời sang sau, theo yêu cầu "làm phần bắt buộc trước".
