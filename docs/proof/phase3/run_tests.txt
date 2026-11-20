@@ -67,4 +67,6 @@ PASS test_no_early_win
 PASS test_dawn_survived
 PASS test_dawn_lost_below_ratio
 PASS test_night_thresholds
-69/69 passed
+PASS test_drain_event_fuel_matches_snapshot
+PASS test_target_cleared_outside_drain
+71/71 passed

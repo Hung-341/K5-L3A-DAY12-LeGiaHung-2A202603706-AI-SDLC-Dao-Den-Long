@@ -21,6 +21,8 @@
 5. **Thứ tự trong tick:** việc trừ dầu đặt ở bước 2 (bộ đếm), và ngay sau đó đèn hết dầu thì tắt. Xét thắng/thua là bước cuối của tick, kể cả tick bình minh; hết Ngọn Lửa luôn thua trước.
 6. **Luật thắng** không còn thắng sớm. Ở tick `time_left ≤ 0`: còn Ngọn Lửa và số đèn sáng ≥ `ceil(win_ratio × tổng)` thì `won/dawn_survived`, ngược lại `lost/dawn`. Thưởng bình minh: mỗi đèn sáng +50 + floor(fuel), mỗi Ngọn Lửa +50.
 
+7. **"Đèn đầy dầu" giữ đúng nguyên văn công thức** `used = min(mang, ceil((100 − fuel)/10))`, với fuel theo số nguyên 1/60 và không làm tròn trước khi tính. Vì dầu bị trừ ở bước 2, trước bước 5 tương tác, đèn `fuel: 100` chỉ còn 99.983 lúc bấm, nên `used = 1`. Như vậy đèn chỉ thật sự "đầy" (không được chọn) khi `fuel = 100` đúng lúc xét. Phương án khác là làm tròn fuel 1 chữ số trước khi tính, nhưng nó trái với "chỉ làm tròn khi xuất ra" và làm lệch các case khác (đèn 50 dầu sẽ ra 5 thay vì 6). Cái giá nếu sai: test ẩn "đèn vừa đầy không nhận đom đóm" sẽ trượt.
+
 ## Hệ quả
 - Điểm và số liệu đọc từ `game.contract.json` (v1.2), không viết cứng trong code.
 - Test bị luật mới thay: `test_win` (thắng sớm `all_lit`) bị **xóa**, thay bằng `test_no_early_win`, `test_dawn_survived`, `test_dawn_lost_below_ratio`, `test_night_thresholds`. `test_contract_fields`, `test_deposit_lit` (thêm `relight`) và `test_pause` (thời lượng 240 s) được **sửa**. Lý do ghi ngay trong test.

@@ -388,6 +388,7 @@ func step(inp: Dictionary) -> void:
 	for L in lanterns:
 		if L["lit"]:
 			L["fuel"] -= int(round(float(T["fuel_decay_per_s"]) * FU / 60.0))
+	var drain_ev := []
 	for s in shades:
 		if s["state"] == "drain":
 			var L := _lantern(s["lantern"])
@@ -395,7 +396,9 @@ func step(inp: Dictionary) -> void:
 				L["fuel"] -= int(round(float(T["drain_per_s"]) * FU / 60.0))
 				s["drain_t"] += 1
 				if s["drain_t"] % DRAIN_EVENT_EVERY == 0:
-					_emit("fuel_drain", {"lantern_id": L["id"], "shade_id": s["id"], "fuel": r1(max(L["fuel"], 0) / float(FU))})
+					drain_ev.append([L, s["id"]])
+	for e in drain_ev:  # ghi sau khi mọi bóng đã hút, để fuel khớp snapshot
+		_emit("fuel_drain", {"lantern_id": e[0]["id"], "shade_id": e[1], "fuel": r1(max(e[0]["fuel"], 0) / float(FU))})
 	for L in lanterns:
 		if L["lit"] and L["fuel"] <= 0:
 			L["lit"] = false
@@ -858,7 +861,7 @@ func snapshot(tick: int) -> Dictionary:
 	var ss := []
 	for s in shades:
 		ss.append({"id": s["id"], "pos": v3(s["pos"]), "state": s["state"],
-			"target_lantern_id": s["lantern"] if s["lantern"] != "" else null})
+			"target_lantern_id": s["lantern"] if s["state"] == "drain" and s["lantern"] != "" else null})
 	var ms := []
 	for m in motes:
 		ms.append({"id": m["id"], "pos": v3(m["pos"]), "kind": m["kind"], "ttl_s": r3(m["ttl"] * DT) if m["ttl"] > 0 else null})

@@ -1,6 +1,6 @@
 # Bằng chứng Phase 3 (Contract v1.2)
 
-Chạy lại: `python3 tests/run_tests.py` → [run_tests.txt](run_tests.txt) (69/69 đạt ở tag `phase-3`). Bộ test gồm các test Phase 1–2 còn hiệu lực và 14 test mới.
+Chạy lại: `python3 tests/run_tests.py` → [run_tests.txt](run_tests.txt) (71/71 đạt ở tag `phase-3`). Bộ test gồm các test Phase 1–2 còn hiệu lực và 14 test mới.
 Quyết định thiết kế: [ADR 0001](../../adr/0001-lantern-fuel-and-dawn-win.md) · Breaking changes: [CHANGELOG.md](../../../CHANGELOG.md).
 
 | Yêu cầu Ticket-03 | Kiểm chứng | Kết quả |

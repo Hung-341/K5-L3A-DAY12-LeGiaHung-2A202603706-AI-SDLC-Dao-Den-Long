@@ -628,6 +628,22 @@ def test_night_thresholds():
         assert end(L)["state"] == want, (night, n_lit, end(L))
 
 
+def test_drain_event_fuel_matches_snapshot():
+    # nhiều bóng cùng hút: fuel trong fuel_drain là dầu cuối tick, khớp snapshot
+    sh = [{"id": "S1", "pos": [0, 1, 24], "state": "drain", "target_lantern_id": "L1"},
+          {"id": "S2", "pos": [0.5, 1, 24], "state": "drain", "target_lantern_id": "L1"}]
+    c, L, _ = run(ticks=60, scenario=sc(player={"pos": [0, 0, -30]}, lanterns=_lit(25), shades=sh), every=60)
+    f = events(L, "fuel_drain")
+    assert len(f) == 2 and all(e["tick"] == 60 and e["data"]["fuel"] == snap(L, 60)["lanterns"][0]["fuel"] for e in f), f
+
+
+def test_target_cleared_outside_drain():
+    sh = [{"id": "S1", "pos": [0, 1, 24], "state": "drain", "target_lantern_id": "L1"}]
+    c, L, _ = run(ticks=2, scenario=sc(player={"pos": [0, 0, 20]}, lanterns=_lit(20), shades=sh), every=1)
+    s1 = snap(L, 1)["shades"][0]
+    assert s1["state"] == "chase" and s1["target_lantern_id"] is None, s1
+
+
 if __name__ == "__main__":
     names = sys.argv[1:] or [n for n in list(globals()) if n.startswith("test_")]
     bad = 0
