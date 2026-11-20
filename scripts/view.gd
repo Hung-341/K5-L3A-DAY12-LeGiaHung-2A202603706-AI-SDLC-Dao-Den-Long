@@ -44,6 +44,13 @@ var panel: VBoxContainer
 var sfx: Sfx
 var last_sec := -1
 var mats := {}
+const BUFFER_TICKS := 6
+var buffer := {"jump": 0, "dash": 0, "pulse": 0}
+var held := {"jump": false, "dash": false, "pulse": false}
+var prev_pos := {}
+var cam_focus := Vector3.ZERO
+var body_yaw := 0.0
+var walk_t := 0.0
 
 
 func _ready() -> void:
@@ -549,8 +556,26 @@ func _physics_process(_dt: float) -> void:
 	if OS.get_environment("DDL_AUTOPLAY") != "":
 		mz = 0.6
 		yaw += 0.3
-	sim.step({"move": [mx, mz], "cam_yaw_deg": yaw, "jump": _key(KEY_SPACE), "interact": _key(KEY_E),
-		"pulse": _key(KEY_F) or Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT), "dash": _key(KEY_SHIFT)})
+	# lưu vị trí tick trước để _process nội suy (hình mượt dù logic chạy 60 tick/s)
+	prev_pos = {"player": sim.p_pos}
+	for e in sim.shades + sim.drifters:
+		prev_pos[e.id] = e.pos
+	# nhớ phím 0.1 s: gửi cạnh false→true vào đúng tick hành động hợp lệ (chỉ ở lớp nhập phím, không đổi luật)
+	var want := {"jump": _key(KEY_SPACE), "dash": _key(KEY_SHIFT),
+		"pulse": _key(KEY_F) or Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)}
+	var ready := {"jump": sim.grounded, "dash": sim.dash_t == 0 and (sim.dash_cd == 0 or sim.charm_t > 0),
+		"pulse": sim.pulse_cd == 0 and sim.carried >= int(sim.T["pulse_cost"])}
+	var send := {}
+	for k in want:
+		if want[k] and not held[k]:
+			buffer[k] = BUFFER_TICKS
+		held[k] = want[k]
+		send[k] = buffer[k] > 0 and ready[k]
+		if send[k]:
+			buffer[k] = 0
+		buffer[k] = max(0, buffer[k] - 1)
+	sim.step({"move": [mx, mz], "cam_yaw_deg": yaw, "jump": send.jump, "interact": _key(KEY_E),
+		"pulse": send.pulse, "dash": send.dash})
 	for ev in sim.events:
 		match ev.name:
 			"mote_picked", "charm_picked": sfx.play("pick")
@@ -577,7 +602,7 @@ var _fps_sum := 0.0
 var _fps_n := 0
 
 
-func _process(_dt: float) -> void:
+func _process(_dt: float) -> void:  # _dt dùng cho làm mượt camera/xoay
 	_frames += 1
 	if OS.get_environment("DDL_AUTOPLAY") != "" and mode == "menu" and _frames == 5:
 		_start_night(night)
@@ -592,25 +617,33 @@ func _process(_dt: float) -> void:
 		print("avg_fps=%.1f samples=%d" % [_fps_sum / max(1, _fps_n), _fps_n])
 		get_tree().quit()
 	var t := Time.get_ticks_msec() / 1000.0
-	player.position = sim.p_pos
-	player.rotation.y = atan2(sim.p_face.x, sim.p_face.z)
+	var a := Engine.get_physics_interpolation_fraction()
+	var ppos := _lerp_pos("player", sim.p_pos, a)
+	var moving := Vector2(sim.p_vel.x, sim.p_vel.z).length() > 0.5 and mode == "play" and not paused
+	walk_t = walk_t + _dt * 12.0 if moving and sim.grounded else 0.0
+	player.position = ppos + Vector3(0, absf(sin(walk_t)) * 0.12, 0)
+	body_yaw = lerp_angle(body_yaw, atan2(sim.p_face.x, sim.p_face.z), minf(1.0, _dt * 14.0))
+	player.rotation = Vector3(0, body_yaw, sin(walk_t) * 0.06)
 	player.visible = sim.fall_wait == 0 and (sim.invuln == 0 or int(t * 12) % 2 == 0)
 	var th := deg_to_rad(yaw)
 	var fwd := Vector3(sin(th), 0, cos(th))
-	var focus: Vector3 = sim.p_pos + Vector3(0, 1.0, 0)
-	cam.position = focus - fwd * 13.0 + Vector3(0, 11.0, 0)
-	cam.look_at(focus)
+	var target := ppos + Vector3(0, 1.0, 0)
+	cam_focus = target if cam_focus.distance_to(target) > 12.0 else cam_focus.lerp(target, minf(1.0, _dt * 10.0))
+	var far := 1.0 + clampf(Vector2(sim.p_vel.x, sim.p_vel.z).length() - 7.0, 0.0, 10.0) * 0.03  # kéo xa khi lướt/bay
+	cam.position = cam_focus - fwd * 13.0 * far + Vector3(0, 11.0 * far, 0)
+	cam.look_at(cam_focus)
+	var focus := cam_focus
 	(cam.attributes as CameraAttributesPractical).dof_blur_far_distance = cam.position.distance_to(focus) + 6.0
 	_sync(sim.motes, mote_nodes, func(): return _mesh(_sphere(0.22), _mat(C.mote, 4.0)),
 		func(n, m): n.position = m.pos + Vector3(0, 0.7 + 0.15 * sin(t * 3.0 + n.get_instance_id()), 0))
 	_sync(sim.shades, shade_nodes, _make_shade, func(n, s):
-		n.position = s.pos
+		n.position = _lerp_pos(s.id, s.pos, a)
 		if Sim.xz(s.pos, sim.p_pos) > 0.1:
 			n.look_at(Vector3(sim.p_pos.x, s.pos.y, sim.p_pos.z), Vector3.UP, true)
 		n.get_node("body").material_override = _mat(C.shade_stun if s.state == "stunned" else C.shade)
 		n.scale = Vector3.ONE * (0.4 if s.state == "spawning" else 1.0 + 0.06 * sin(t * 5.0)))
 	_sync(sim.drifters, drifter_nodes, _make_drifter, func(n, d):
-		n.position = d.pos
+		n.position = _lerp_pos(d.id, d.pos, a)
 		n.rotation.y = t * 2.0
 		for i in 4:
 			n.get_node("s%d" % i).position.y = 0.25 * sin(t * 6.0 - i * 0.9))
@@ -631,6 +664,12 @@ func _process(_dt: float) -> void:
 	if mode != "dawn":
 		env.ambient_light_energy = 0.15 + 0.55 * lit / sim.lanterns.size()
 	_update_hud(t)
+
+
+## Nội suy giữa vị trí tick trước và tick hiện tại; bỏ qua khi dịch chuyển xa (hồi sinh).
+func _lerp_pos(id: String, cur: Vector3, a: float) -> Vector3:
+	var p: Vector3 = prev_pos.get(id, cur)
+	return cur if p.distance_to(cur) > 3.0 else p.lerp(cur, a)
 
 
 func _sync(items: Array, nodes: Dictionary, make: Callable, update: Callable) -> void:
