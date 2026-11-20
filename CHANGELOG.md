@@ -1,5 +1,30 @@
 # Changelog
 
+## [phase-4] v1.0.0 · Contract v1.3 "Bình minh: phát hành"
+
+### Thêm
+- **Benchmark** `./bench.sh`: cảnh chuẩn có 200 Bóng Mực và 100 đom đóm, camera bay vòng, tắt vsync. Ghi `bench.json` gồm avg_fps, p1_low_fps, frame_ms_p95, load_ms, peak RSS.
+- **Soak** `./headless.sh --soak`: 10 Đêm liên tiếp trong một tiến trình, input ngẫu nhiên theo seed, đo RSS đầu và cuối.
+- **Bảng xếp hạng cục bộ** (top 10, ISO 8601, tên gồm tiếng Việt có dấu); `./run.sh --export-leaderboard out.json`.
+- **Dễ tiếp cận:**
+  - Đổi phím mọi hành động, báo trùng, khôi phục mặc định.
+  - Phụ đề kèm mũi tên chỉ Bóng Mực vừa xuất hiện.
+  - Giảm chuyển động. Chữ tối thiểu 18 px, tùy chọn ×1.25.
+- **Đóng gói:** `run.sh` và `bench.sh` tự tìm hoặc tải Godot 4.7.2; Release v1.0.0.
+- `game.contract.json`: `contract_version: "1.3"`, thêm `bench_cmd` và `soak_cmd`; `run_cmd` đổi thành `./run.sh`.
+- **Sáng tạo (chỉ ở GUI):**
+  - Sương Gai và Gió Đèn. Viền tối theo số đom đóm đang mang.
+  - Trang trí cây, đá, cỏ, hoa. Camera xoay tự do.
+  - Chọn Đêm, trang phục, đom đóm bay quanh Mây.
+- **Lựa chọn trong khuôn luật:** đom đóm sinh ở điểm trống xa Mây nhất; Bóng Mực lang thang theo 4 tính cách, tốc độ ≤ 4.0 m/s.
+
+### Sửa
+- Viền Bóng Mực vẽ dạng đường viền, để thân `#120A1A` và viền `#7A3CFF` đúng bảng màu.
+- Hiệu năng: lưới ít tam giác, vật nhỏ không đổ bóng, không gán lại vật liệu và cỡ chữ mỗi khung hình.
+
+### Breaking changes
+- Output headless với cùng seed khác bản `phase-3`, vì vị trí đom đóm mới sinh và đường lang thang của Bóng Mực đã đổi. Luật và số liệu chuẩn không đổi.
+
 ## [phase-3] Contract v1.2 "Đèn cạn dầu"
 
 ### Breaking changes

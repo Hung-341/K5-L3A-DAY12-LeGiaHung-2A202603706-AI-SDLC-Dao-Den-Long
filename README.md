@@ -1,55 +1,67 @@
 # Đảo Đèn Lồng (Day 12 · AI SDLC)
 
-> Video demo: *(bổ sung ở Phase 4)*  ·  Tài liệu lab gốc: [LAB-README.md](LAB-README.md)
+> **Video demo:** [Release v1.0.0](https://github.com/Hung-341/K5-L3A-DAY12-LeGiaHung-2A202603706-AI-SDLC-Dao-Den-Long/releases/tag/v1.0.0) (`demo.mp4`) · **Bản chạy được:** cùng trang Release · Tài liệu lab gốc: [LAB-README.md](LAB-README.md)
 
-Game 3D góc nhìn thứ ba (Godot 4.7.2). Mây đội nón lá treo đèn lồng nhỏ, nhặt đom đóm trên ba hòn đảo trôi giữa biển mây, nạp vào các Đèn Lồng Lớn, né Bóng Mực và Gió Lạc. Thắp hết đèn của cả ba Đêm (Đảo Bến, Đảo Cau, Đảo Chuông) trước bình minh thì thắng.
+![Đảo Đèn Lồng: Đêm 1](docs/proof/phase4/night1.png)
 
-## Cài và chạy (macOS / Linux)
+Game 3D góc nhìn thứ ba làm bằng Godot 4.7.2. Mây đội nón lá treo đèn lồng nhỏ, nhặt đom đóm trên ba hòn đảo trôi giữa biển mây để thắp và giữ dầu cho các Đèn Lồng Lớn, né Bóng Mực, Gió Lạc và Sương Gai, và **giữ đảo sáng tới bình minh**.
+
+## Yêu cầu hệ thống
+- **Chơi:** macOS 12+ hoặc Linux x86_64/arm64 (có X11/Wayland), GPU hỗ trợ Vulkan hoặc Metal, `curl` và `unzip`. `run.sh` tự tải Godot 4.7.2 chính thức (khoảng 60 MB, một lần) nếu máy chưa có. Windows: dùng bản Windows trong Release.
+- **Headless / soak:** Godot 4 trên PATH, hoặc Docker (dùng `docker build` bên dưới).
+- **Test:** Python 3.8+ (chỉ dùng thư viện chuẩn).
+
+## Cài và chơi (3 lệnh)
 
 ```bash
-docker build -t dao-den-long .                                   # build_cmd: image headless (Godot 4.7.2)
-./headless.sh --seed 1 --night 1 --ticks 600 --out out/a.jsonl   # headless_cmd
-godot --path .                                                   # run_cmd: bản có giao diện (cần Godot 4.7.x)
+git clone https://github.com/Hung-341/K5-L3A-DAY12-LeGiaHung-2A202603706-AI-SDLC-Dao-Den-Long.git
+cd K5-L3A-DAY12-LeGiaHung-2A202603706-AI-SDLC-Dao-Den-Long
+./run.sh
 ```
 
-- `headless.sh` dùng Godot 4 cài sẵn nếu có (`GODOT` hoặc `godot` trên PATH), nếu không thì chạy trong Docker image. Mọi đường dẫn `--out/--scenario/--inputs` (tương đối hoặc tuyệt đối) đều dùng được.
-- Bản có giao diện cần Godot 4.7.x ([tải tại godotengine.org](https://godotengine.org/download)); bản xuất sẵn sẽ có ở Release `v1.0.0`.
+## Lệnh theo Test Contract v1.3 ([game.contract.json](game.contract.json))
 
-## Điều khiển
-
-| Phím | Việc |
+| Việc | Lệnh |
 |---|---|
-| WASD | Đi (theo hướng camera) |
-| Chuột | Xoay camera (độ nhạy chỉnh trong Cài đặt) |
+| build_cmd (image headless) | `docker build -t dao-den-long .` |
+| run_cmd (chơi) | `./run.sh` |
+| headless_cmd | `./headless.sh --seed 1 --night 1 --ticks 600 --out out/a.jsonl [--scenario f.json] [--inputs f.json]` |
+| bench_cmd | `./bench.sh --seed 42 --duration 30 --out bench.json` (cần màn hình; tắt vsync) |
+| soak_cmd | `./headless.sh --soak --seed 7 --nights 10 --out soak.json` |
+| Xuất bảng xếp hạng | `./run.sh --export-leaderboard out.json` |
+| Test | `python3 tests/run_tests.py` (78 scenario headless) |
+
+`headless.sh` dùng Godot 4 có sẵn (biến `GODOT` hoặc `godot` trên PATH), nếu không thì chạy trong Docker image `dao-den-long`. Kết quả tự đo nằm ở [docs/proof/phase4/](docs/proof/phase4/): bench avg **135.9 FPS**, p1_low **43.0**, load **2.75 s**; soak 10 Đêm **0 crash**.
+
+## Điều khiển (đổi được trong Cài đặt → Đổi phím)
+
+| Phím mặc định | Việc |
+|---|---|
+| W A S D | Đi theo hướng camera |
+| Chuột / cuộn chuột | Xoay camera góc nhìn thứ ba / zoom |
 | Space | Nhảy |
 | Shift | Lướt |
 | E | Nạp đom đóm vào đèn / châm dầu |
-| Q | Gió Đèn (5 đom đóm): thổi bay Sương Gai |
-| Cuộn chuột | Zoom camera |
-| F hoặc chuột trái | Tỏa Sáng |
-| Esc hoặc P | Tạm dừng (Tiếp tục / Chơi lại Đêm / Cài đặt / Về menu) |
+| F hoặc chuột trái | Tỏa Sáng (3 đom đóm) |
+| Q | Gió Đèn: thổi bay Sương Gai (phần sáng tạo) |
+| P hoặc Esc | Tạm dừng: Tiếp tục / Chơi lại Đêm / Cài đặt / Về menu |
 
-## Luật và cách tính điểm
+**Cài đặt** (được lưu): âm lượng, độ nhạy chuột, bảng màu dễ phân biệt, giảm chuyển động, chữ lớn ×1.25, đổi phím (báo trùng, khôi phục mặc định), trang phục.
 
-- Đom đóm nhặt tự động khi đi qua (≤ 1.0 m), mang tối đa 10. Đứng gần đèn (≤ 2.0 m) bấm E để nạp; đèn cần 10 đom đóm, nạp nhiều lần được.
-- Tỏa Sáng tốn **3 đom đóm đang mang**, làm choáng Bóng Mực trong 5 m (2 s) và đẩy lùi 4 m. Hồi chiêu 3 s.
-- Bóng Mực chạm: mất 1 Ngọn Lửa (có 3), rơi một nửa số đom đóm đang mang ra quanh Mây, bất tử 1.5 s. Rơi khỏi đảo: mất 1 Ngọn Lửa và toàn bộ đom đóm, hồi sinh ở giữa đảo sau 1 s.
-- Đèn đã thắp tạo vùng an toàn 6 m mà Bóng Mực không vào được.
-- Ba Đêm: 5 / 6 / 7 đèn, 300 / 330 / 360 s. Đêm 2 có cầu tre và bục nhảy; Đêm 3 có 3 tầng, dốc, gió mạnh. Gió Lạc cướp đom đóm khi Mây mang ≥ 5; Bùa Gió tăng tốc 7.2 m/s và bỏ hồi chiêu Lướt trong 10 s.
-- **Từ Phase 3:** đèn có dầu (hao 1/s, Bóng Mực hút 5/s khi dầu < 30), hết dầu thì tắt; thắp lại cần 5 đom đóm; châm dầu bằng E. Thắng khi sống tới bình minh với ≥ 60% đèn đang sáng (3/5, 4/6, 5/7); thua nếu hết Ngọn Lửa hoặc thiếu đèn lúc bình minh. Đêm dài 240 / 270 / 300 s.
-- **Điểm (mỗi Đêm, tổng = cộng các Đêm đã thắng):** +5 mỗi đom đóm nạp vào đèn · +100 thắp lần đầu · +40 thắp lại · +5 mỗi Bóng Mực trúng Tỏa Sáng (+15 nếu nó đang hút dầu) · khi thắng: mỗi đèn sáng +50 + floor(dầu), mỗi Ngọn Lửa +50.
+## Luật và cách tính điểm (v1.2–v1.3)
+- **Ba Đêm:** Đảo Bến (5 đèn, 240 s), Đảo Cau (6 đèn, 270 s, cầu tre, bục nhảy), Đảo Chuông (7 đèn, 300 s, 3 tầng, dốc, gió mạnh).
+- **Đom đóm:** nhặt tự động trong 1.0 m. Sức chứa `10 + 2 × số lần thắp thành công`, tối đa 20. Thắp đèn lần đầu cần 10, thắp lại cần 5.
+- **Dầu đèn:** đèn sáng có 100 dầu, hao 1/s. E để châm (+10 dầu mỗi đom đóm). Đèn dưới 30 dầu nhấp nháy, mất vùng an toàn 6 m, và Bóng Mực tới hút 5/s. Hết dầu thì đèn tắt.
+- **Kẻ địch:**
+  - Bóng Mực đuổi khi trong 12 m, chạm thì −1 Ngọn Lửa (có 3). Tỏa Sáng làm choáng 2 s và đẩy 4 m.
+  - Gió Lạc (Đêm 2–3) cướp 3 đom đóm khi Mây mang ≥ 5.
+  - Rơi khỏi đảo: −1 Ngọn Lửa và mất hết đom đóm.
+- **Thắng:** còn sống tới bình minh và có ≥ 60% đèn đang sáng (3/5, 4/6, 5/7). Thua thì chơi lại Đêm đó; thắng Đêm 3 thì ra màn Bình Minh và lưu điểm vào **Bảng xếp hạng** (top 10).
+- **Điểm:** +5 mỗi đom đóm nạp vào đèn · +100 thắp lần đầu · +40 thắp lại · +5 mỗi Bóng Mực trúng Tỏa Sáng (+15 nếu nó đang hút dầu) · khi thắng: mỗi đèn sáng +50 + floor(dầu), mỗi Ngọn Lửa +50. Tổng điểm là tổng các Đêm đã thắng.
+- `fall_enabled: true`. Không có khái niệm nào để `null`.
 
-Toàn bộ số liệu nằm trong [game.contract.json](game.contract.json). Từ Phase 1 đã dùng **số liệu chuẩn của Ticket-02**, lý do ở [docs/notes/phase1.md](docs/notes/phase1.md).
-
-## Test và headless
-
-```bash
-python3 tests/run_tests.py              # 29 scenario headless, gồm kiểm tra tất định và mã thoát 2
-```
-
-- Contract: [game.contract.json](game.contract.json) (v1.2). `--night 1|2|3`. Thay đổi phá vỡ tương thích: [CHANGELOG.md](CHANGELOG.md). Output JSONL gồm snapshot, event, end theo Test Contract.
-- `fall_enabled: true`: đảo bán kính 40 m, rơi khi Y < −10. Không có khái niệm nào để `null`.
-- Bằng chứng từng phase: [docs/proof/](docs/proof/). Ghi chép, giả định, nhật ký AI: [docs/notes/](docs/notes/).
+## Tài liệu
+[CHANGELOG.md](CHANGELOG.md) (4 phase, breaking changes) · [ADR 0001](docs/adr/0001-lantern-fuel-and-dawn-win.md) · ghi chép từng phase [docs/notes/](docs/notes/) · bằng chứng [docs/proof/](docs/proof/) · [retro](docs/notes/retro.md) · [kịch bản demo](docs/demo/DEMO-SCRIPT.md) · [CREDITS.md](CREDITS.md) · [LICENSE](LICENSE).
 
 ## Sáng tạo của tôi
 
@@ -75,4 +87,4 @@ Bằng chứng phần cũ vẫn đúng: toàn bộ test headless vẫn đạt ([
 
 ## Harness AI
 
-[AGENTS.md](AGENTS.md) · skill [verify-game](.claude/skills/verify-game/SKILL.md) · hook Stop chặn kết thúc khi test đỏ ([.claude/settings.json](.claude/settings.json)) · CI chạy test mỗi lần push ([.github/workflows/test.yml](.github/workflows/test.yml)) · công cụ chụp ảnh bằng chứng `DDL_SHOT`.
+[AGENTS.md](AGENTS.md) (cập nhật qua 4 phase) · skill [verify-game](.claude/skills/verify-game/SKILL.md) · hook Stop chặn kết thúc khi test đỏ ([.claude/settings.json](.claude/settings.json)) · CI chạy test mỗi lần push ([.github/workflows/test.yml](.github/workflows/test.yml)) · công cụ chụp ảnh bằng chứng `DDL_SHOT`.
