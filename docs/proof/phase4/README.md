@@ -29,4 +29,4 @@ Khi máy chạy pin, driver khóa ở 30 FPS (xem retro mục 3), nên bench đ�
 | 5. Clone sạch, tối đa 3 lệnh để chơi; README đủ mục; CHANGELOG 4 phase; CREDITS; LICENSE | `run.sh` tự tải Godot 4.7.2 (macOS/Linux) | Đạt; chưa thử trên máy macOS/Linux thật |
 | 5. Release v1.0.0 có bản chạy được | Bản Windows (Godot + game), mã nguồn + `run.sh`, Docker headless | Bản chạy được nằm trên trang Release |
 | 6. Contract v1.3, `bench_cmd`, `soak_cmd` | `game.contract.json`; `test_contract_fields` | Đạt |
-| 7. Retro, video demo | [docs/notes/retro.md](../../notes/retro.md), [docs/demo/](../../demo/) | Retro đạt; video do người làm quay |
+| 7. Retro, video demo | [docs/notes/retro.md](../../notes/retro.md), [docs/demo/](../../demo/) | Đạt; video [demo.mp4](https://github.com/Hung-341/K5-L3A-DAY12-LeGiaHung-2A202603706-AI-SDLC-Dao-Den-Long/releases/download/v1.0.0/demo.mp4) đính kèm Release v1.0.0 |

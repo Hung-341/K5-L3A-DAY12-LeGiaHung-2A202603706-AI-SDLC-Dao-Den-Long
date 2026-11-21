@@ -1,6 +1,6 @@
 # Đảo Đèn Lồng (Day 12 · AI SDLC)
 
-> **Video demo:** [Release v1.0.0](https://github.com/Hung-341/K5-L3A-DAY12-LeGiaHung-2A202603706-AI-SDLC-Dao-Den-Long/releases/tag/v1.0.0) (`demo.mp4`) · **Bản chạy được:** cùng trang Release · Tài liệu lab gốc: [LAB-README.md](LAB-README.md)
+> **Video demo:** [demo.mp4](https://github.com/Hung-341/K5-L3A-DAY12-LeGiaHung-2A202603706-AI-SDLC-Dao-Den-Long/releases/download/v1.0.0/demo.mp4) (4 phút 1 giây) · **Bản chạy được:** [Release v1.0.0](https://github.com/Hung-341/K5-L3A-DAY12-LeGiaHung-2A202603706-AI-SDLC-Dao-Den-Long/releases/tag/v1.0.0) · Tài liệu lab gốc: [LAB-README.md](LAB-README.md)
 
 ![Đảo Đèn Lồng: Đêm 1](docs/proof/phase4/night1.png)
 
